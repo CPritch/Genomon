@@ -25,7 +25,8 @@ The application currently functions as a command-line tool to generate the card 
 
 First, you need to fetch the latest card data from the TCGdex API. This command contacts the API, retrieves all card sets for TCG Pocket, and saves the raw data.
 
-[! WARNING] > ⚠️ Please don't spam this command and respect the fact that tcgdex choose to host this for free. Please also [support their efforts](https://github.com/sponsors/tcgdex)
+> [! WARNING] 
+> ⚠️ Please don't spam this command and respect the fact that tcgdex choose to host this for free. Please also [support their efforts](https://github.com/sponsors/tcgdex)
 
 ```bash
 go run ./cmd/genomon sync
