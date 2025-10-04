@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/cpritch/genomon/internal/core"
 	"github.com/cpritch/genomon/internal/effects"
@@ -24,6 +26,7 @@ func main() {
 	processCmd := flag.NewFlagSet("process", flag.ExitOnError)
 	processInputFile := processCmd.String("i", rawOutputFile, "Input file for processing")
 	processOutputFile := processCmd.String("o", enrichedOutputFile, "Output file for processed data")
+	sampleSize := processCmd.Int("n", 0, "Number of random unknown effects to sample and print")
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -36,7 +39,7 @@ func main() {
 		handleSyncCommand(syncOutputFile)
 	case "process":
 		processCmd.Parse(os.Args[2:])
-		handleProcessCommand(processInputFile, processOutputFile)
+		handleProcessCommand(processInputFile, processOutputFile, sampleSize)
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -117,7 +120,7 @@ func handleSyncCommand(outputFile *string) {
 	fmt.Printf("Successfully synced all card data to %s\n", *outputFile)
 }
 
-func handleProcessCommand(inputFile, outputFile *string) {
+func handleProcessCommand(inputFile, outputFile *string, sampleSize *int) {
 	fmt.Printf("Loading raw card data from %s...\n", *inputFile)
 	data, err := os.ReadFile(*inputFile)
 	if err != nil {
@@ -133,7 +136,7 @@ func handleProcessCommand(inputFile, outputFile *string) {
 
 	fmt.Printf("Processing %d cards to parse effects...\n", len(rawCards))
 	enrichedCards := make([]core.Card, 0, len(rawCards))
-	unknownEffectCount := 0
+	var unknownCards []core.Card // Slice to store cards with unknown effects
 
 	for _, rawCard := range rawCards {
 		enrichedCard := core.Card{
@@ -147,29 +150,33 @@ func handleProcessCommand(inputFile, outputFile *string) {
 		// Parse abilities
 		for _, ability := range rawCard.Abilities {
 			if ability.Effect != "" {
-				parsedEffect := effects.Parse(ability.Effect)
-				parsedEffect.Name = ability.Name // Add name for mapping
-				if parsedEffect.Type == core.EffectUnknown {
-					cardHasUnknownEffect = true
+				parsedEffects := effects.Parse(ability.Effect)
+				for _, effect := range parsedEffects {
+					effect.Name = ability.Name // Add name for mapping
+					if effect.Type == core.EffectUnknown {
+						cardHasUnknownEffect = true
+					}
+					enrichedCard.ParsedAbilities = append(enrichedCard.ParsedAbilities, effect)
 				}
-				enrichedCard.ParsedAbilities = append(enrichedCard.ParsedAbilities, parsedEffect)
 			}
 		}
 
 		// Parse attacks
 		for _, attack := range rawCard.Attacks {
 			if attack.Effect != "" {
-				parsedEffect := effects.Parse(attack.Effect)
-				parsedEffect.Name = attack.Name // Add name for mapping
-				if parsedEffect.Type == core.EffectUnknown {
-					cardHasUnknownEffect = true
+				parsedEffects := effects.Parse(attack.Effect)
+				for _, effect := range parsedEffects {
+					effect.Name = attack.Name // Add name for mapping
+					if effect.Type == core.EffectUnknown {
+						cardHasUnknownEffect = true
+					}
+					enrichedCard.ParsedAttacks = append(enrichedCard.ParsedAttacks, effect)
 				}
-				enrichedCard.ParsedAttacks = append(enrichedCard.ParsedAttacks, parsedEffect)
 			}
 		}
 
 		if cardHasUnknownEffect {
-			unknownEffectCount++
+			unknownCards = append(unknownCards, enrichedCard)
 		}
 
 		enrichedCards = append(enrichedCards, enrichedCard)
@@ -190,8 +197,36 @@ func handleProcessCommand(inputFile, outputFile *string) {
 
 	fmt.Printf("Successfully processed and saved enriched card data to %s\n", *outputFile)
 
-	if unknownEffectCount > 0 {
-		fmt.Printf("\n⚠️  Warning: Could not parse one or more effects for %d card(s).\n", unknownEffectCount)
-		fmt.Println("   These have been marked with type UNKNOWN in the output file.")
+	if len(unknownCards) > 0 {
+		fmt.Printf("\n⚠️  Warning: Could not parse one or more effects for %d card(s).\n", len(unknownCards))
+
+		if sampleSize != nil && *sampleSize > 0 {
+			fmt.Printf("--- Sampling %d random unknown effect(s) ---\n\n", *sampleSize)
+			r := rand.New(rand.NewSource(time.Now().UnixNano()))
+			r.Shuffle(len(unknownCards), func(i, j int) {
+				unknownCards[i], unknownCards[j] = unknownCards[j], unknownCards[i]
+			})
+
+			numToShow := *sampleSize
+			if len(unknownCards) < numToShow {
+				numToShow = len(unknownCards)
+			}
+
+			for i := 0; i < numToShow; i++ {
+				card := unknownCards[i]
+				fmt.Printf("Card: %s (%s)\n", card.Name, card.ID)
+				for _, effect := range card.ParsedAbilities {
+					if effect.Type == core.EffectUnknown {
+						fmt.Printf("  └─ Ability '%s': %s\n", effect.Name, effect.Description)
+					}
+				}
+				for _, effect := range card.ParsedAttacks {
+					if effect.Type == core.EffectUnknown {
+						fmt.Printf("  └─ Attack '%s': %s\n", effect.Name, effect.Description)
+					}
+				}
+				fmt.Println()
+			}
+		}
 	}
 }
