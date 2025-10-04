@@ -8,7 +8,7 @@ A genetic learning system for discovering optimal deck strategies in the Pokémo
 
 We have successfully completed the first major phase:
 
-1.  **Data Acquisition:** A client that syncs all official Pokémon TCG Pocket card data from the public [TCGdex API](https://www.google.com/search?q=https://tcgdex.net/docs/pocket). Many thanks to the great devs there.
+1.  **Data Acquisition:** A client that syncs all official Pokémon TCG Pocket card data from the public [TCGdex API](https://tcgdex.net/). Many thanks to the great devs there.
 2.  **Effect Parser:** A comprehensive, regex-based "compiler" that reads the natural language text of every card's abilities and attacks and converts it into a structured, machine-readable format. As of October 2025, this parser has **100% coverage** of all known card effects in the game. We are yet to step over and simplify this and confirm accuracy here.
 
 The project now has a solid foundation of structured data, ready for the next phase: building the game simulation engine.
@@ -24,6 +24,8 @@ The application currently functions as a command-line tool to generate the card 
 ### Step 1: Sync Raw Card Data
 
 First, you need to fetch the latest card data from the TCGdex API. This command contacts the API, retrieves all card sets for TCG Pocket, and saves the raw data.
+
+[! WARNING] ⚠️ Please don't spam this command and respect the fact that tcgdex choose to host this for free. Please also [support their efforts](https://github.com/sponsors/tcgdex)
 
 ```bash
 go run ./cmd/genomon sync
