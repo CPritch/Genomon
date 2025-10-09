@@ -2,13 +2,13 @@ package core
 
 // Effect is our internal structured representation of an attack or ability's effect.
 type Effect struct {
-	Name        string                 `json:"name"`
-	Type        EffectType             `json:"type"`
-	Target      TargetType             `json:"target,omitempty"`
-	Status      StatusCondition        `json:"status,omitempty"`
-	Amount      int                    `json:"amount,omitempty"`
-	Conditions  map[string]interface{} `json:"conditions,omitempty"`
-	Description string                 `json:"description"`
+	Name        string          `json:"name"`
+	Type        EffectType      `json:"type"`
+	Target      TargetType      `json:"target,omitempty"`
+	Status      StatusCondition `json:"status,omitempty"`
+	Amount      int             `json:"amount,omitempty"`
+	Conditions  []Condition     `json:"conditions,omitempty"`
+	Description string          `json:"description"`
 }
 
 // EffectType is an enum for the different kinds of effects we can parse.
@@ -79,6 +79,7 @@ const (
 	TargetBenchedOpponent    TargetType = "BENCHED_OPPONENT"
 	TargetBenchedOpponentAll TargetType = "BENCHED_OPPONENT_ALL"
 	TargetDeck               TargetType = "DECK"
+	TargetHand               TargetType = "HAND"
 	TargetEnergyZone         TargetType = "ENERGY_ZONE"
 )
 

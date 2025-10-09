@@ -8,8 +8,7 @@ import (
 	"github.com/cpritch/genomon/internal/core"
 )
 
-// These are simple regular expressions to find keywords in effect text.
-// We will expand this list significantly.
+// REGEX DEFINITIONS
 var (
 	healRegex                = regexp.MustCompile(`Heal (\d+) damage from this Pokémon\.`)
 	cantAttackNextTurnRegex  = regexp.MustCompile(`During your next turn, this Pokémon can't attack\.`)
@@ -258,3637 +257,4067 @@ var (
 	hariyamaPushOutRegex                            = regexp.MustCompile(`Switch out your opponent's Active Pokémon to the Bench\. \(Your opponent chooses the new Active Pokémon\.\)`)
 )
 
-// Parse takes the raw text of an effect and attempts to turn it into a structured Effect object.
+// effectParser pairs a regular expression with a function that can parse its matches.
+type effectParser struct {
+	regex   *regexp.Regexp
+	handler func(matches []string, text string) []core.Effect
+}
+
+// effectParsers holds our list of all known effect parsers.
+var effectParsers = []effectParser{
+	{regex: healAllFriendlyRegex, handler: parseHealAllFriendly},
+	{regex: healRegex, handler: parseHeal},
+	{regex: cantAttackNextTurnRegex, handler: parseCantAttackNextTurn},
+	{regex: forceSwitchRegex, handler: parseForceSwitch},
+	{regex: recoilDamageRegex, handler: parseRecoilDamage},
+	{regex: searchDeckRegex, handler: parseSearchDeck},
+	{regex: conditionalDamageRegex, handler: parseConditionalDamage},
+	{regex: applyStatusOpponentRegex, handler: parseApplyStatusOpponent},
+	{regex: applyStatusSelfRegex, handler: parseApplyStatusSelf},
+	{regex: attachEnergyRegex, handler: parseAttachEnergy},
+	{regex: searchEvolutionRegex, handler: parseSearchEvolution},
+	{regex: triggeredSleepRegex, handler: parseTriggeredSleep},
+	{regex: conditionalDamageHPRatioRegex, handler: parseConditionalDamageHPRatio},
+	{regex: conditionalDamageEvolvedTurnRegex, handler: parseConditionalDamageEvolvedTurn},
+	{regex: passiveDamageCheckupRegex, handler: parsePassiveDamageCheckup},
+	{regex: scalingDamageRetreatCostRegex, handler: parseScalingDamageRetreatCost},
+	{regex: coinFlipTailsFailsRegex, handler: parseCoinFlipTailsFails},
+	{regex: passiveRetreatCostLatiasRegex, handler: parsePassiveRetreatCostLatias},
+	{regex: discardAllEnergyRegex, handler: parseDiscardAllEnergy},
+	{regex: discardTypedEnergyRegex, handler: parseDiscardTypedEnergy},
+	{regex: moveAllTypedEnergyRegex, handler: parseMoveAllTypedEnergy},
+	{regex: reduceIncomingDamageRegex, handler: parseReduceIncomingDamage},
+	{regex: discardFromHandRegex, handler: parseDiscardFromHand},
+	{regex: cantRetreatRegex, handler: parseCantRetreat},
+	{regex: multiHitRandomRegex, handler: parseMultiHitRandom},
+	{regex: statusOnCoinFlipRegex, handler: parseStatusOnCoinFlip},
+	{regex: scalingDamageSelfDamageRegex, handler: parseScalingDamageSelfDamage},
+	{regex: splashDamageBenchedFriendlyRegex, handler: parseSplashDamageBenchedFriendly},
+	{regex: conditionalDamageExistingDamageRegex, handler: parseConditionalDamageExistingDamage},
+	{regex: conditionalDamageToolAttachedRegex, handler: parseConditionalDamageToolAttached},
+	{regex: gutsAbilityRegex, handler: parseGutsAbility},
+	{regex: searchDeckByNameRegex, handler: parseSearchDeckByName},
+	{regex: snipeAndDiscardTypedRegex, handler: parseSnipeAndDiscardTyped},
+	{regex: discardRandomEnergySelfRegex, handler: parseDiscardRandomEnergySelf},
+	{regex: healOnEvolveRegex, handler: parseHealOnEvolve},
+	{regex: forceSwitchOncePerTurnRegex, handler: parseForceSwitchOncePerTurn},
+	{regex: reduceDamageNextTurnSelfRegex, handler: parseReduceDamageNextTurnSelf},
+	{regex: copyAttackRegex, handler: parseCopyAttack},
+	{regex: passiveDamageReductionTypedRegex, handler: parsePassiveDamageReductionTyped},
+	{regex: drawAtEndOfTurnRegex, handler: parseDrawAtEndOfTurn},
+	{regex: applyStatusOncePerTurnRegex, handler: parseApplyStatusOncePerTurn},
+	{regex: discardRandomEnergyGlobalRegex, handler: parseDiscardRandomEnergyGlobal},
+	{regex: switchSelfRegex, handler: parseSwitchSelf},
+	{regex: snipeDamageRegex, handler: parseSnipeDamage},
+	{regex: healOncePerTurnRegex, handler: parseHealOncePerTurn},
+	{regex: attachEnergyEndsTurnRegex, handler: parseAttachEnergyEndsTurn},
+	{regex: discardEnergyOnEvolveRegex, handler: parseDiscardEnergyOnEvolve},
+	{regex: scalingDamageSelfEnergyRegex, handler: parseScalingDamageSelfEnergy},
+	{regex: drawCardRegex, handler: parseDrawCard},
+	{regex: attachEnergyMultiBenchedRegex, handler: parseAttachEnergyMultiBenched},
+	{regex: conditionalDamageSupporterRegex, handler: parseConditionalDamageSupporter},
+	{regex: drawOnEvolveRegex, handler: parseDrawOnEvolve},
+	{regex: discardSingleTypedEnergyRegex, handler: parseDiscardSingleTypedEnergy},
+	{regex: shuffleIntoDeckOnCoinFlipRegex, handler: parseShuffleIntoDeckOnCoinFlip},
+	{regex: scalingDamageOpponentEnergyRegex, handler: parseScalingDamageOpponentEnergy},
+	{regex: preventAllDamageOnCoinFlipRegex, handler: parsePreventAllDamageOnCoinFlip},
+	{regex: increaseOpponentCostsRegex, handler: parseIncreaseOpponentCosts},
+	{regex: snipeDamagedPokemonRegex, handler: parseSnipeDamagedPokemon},
+	{regex: switchSelfFromBenchRegex, handler: parseSwitchSelfFromBench},
+	{regex: conditionalDamageSelfToolRegex, handler: parseConditionalDamageSelfTool},
+	{regex: attachMultipleEnergyRegex, handler: parseAttachMultipleEnergy},
+	{regex: passiveCostReductionInPlayRegex, handler: parsePassiveCostReductionInPlay},
+	{regex: conditionalDamageOpponentAbilityRegex, handler: parseConditionalDamageOpponentAbility},
+	{regex: scalingSnipeOpponentEnergyRegex, handler: parseScalingSnipeOpponentEnergy},
+	{regex: snipeOncePerTurnRegex, handler: parseSnipeOncePerTurn},
+	{regex: scalingDamageBenchedNameRegex, handler: parseScalingDamageBenchedName},
+	{regex: damageBenchedOpponentAllRegex, handler: parseDamageBenchedOpponentAll},
+	{regex: lifestealRegex, handler: parseLifesteal},
+	{regex: passiveEnergyValueRegex, handler: parsePassiveEnergyValue},
+	{regex: scalingDamageMultiCoinFlipRegex, handler: parseScalingDamageMultiCoinFlip},
+	{regex: conditionalDamageSwitchInRegex, handler: parseConditionalDamageSwitchIn},
+	{regex: conditionalDamageCoinFlipScalingRegex, handler: parseConditionalDamageCoinFlipScaling},
+	{regex: passiveImmunityRegex, handler: parsePassiveImmunity},
+	{regex: scalingDamageBenchedCountRegex, handler: parseScalingDamageBenchedCount},
+	{regex: reactiveDamageRegex, handler: parseReactiveDamage},
+	{regex: attachEnergyToActiveTypedRegex, handler: parseAttachEnergyToActiveTyped},
+	{regex: buffNextTurnRegex, handler: parseBuffNextTurn},
+	{regex: attachEnergyToBenchedRegex, handler: parseAttachEnergyToBenched},
+	{regex: scalingDamageBenchedTypeRegex, handler: parseScalingDamageBenchedType},
+	{regex: passiveRestrictionRegex, handler: parsePassiveRestriction},
+	{regex: modifyEnergyRegex, handler: parseModifyEnergy},
+	{regex: triggeredDamageOnEnergyAttachRegex, handler: parseTriggeredDamageOnEnergyAttach},
+	{regex: switchSelfTypedRegex, handler: parseSwitchSelfTyped},
+	{regex: conditionalDamageOpponentPropertyRegex, handler: parseConditionalDamageOpponentProperty},
+	{regex: conditionalDamageOnKORegex, handler: parseConditionalDamageOnKO},
+	{regex: splashDamageBenchedFriendlyAllRegex, handler: parseSplashDamageBenchedFriendlyAll},
+	{regex: scalingDamageBenchedNamesRegex, handler: parseScalingDamageBenchedNames},
+	{regex: discardMultipleTypedEnergyRegex, handler: parseDiscardMultipleTypedEnergy},
+	{regex: attachEnergyToBenchedStageRegex, handler: parseAttachEnergyToBenchedStage},
+	{regex: passiveDamageBuffInPlayRegex, handler: parsePassiveDamageBuffInPlay},
+	{regex: passiveDamagePreventionCoinFlipRegex, handler: parsePassiveDamagePreventionCoinFlip},
+	{regex: healAtEndOfTurnRegex, handler: parseHealAtEndOfTurn},
+	{regex: passiveRetreatCostEnergyRegex, handler: parsePassiveRetreatCostEnergy},
+	{regex: damageAllOpponentRegex, handler: parseDamageAllOpponent},
+	{regex: passiveRetreatCostReductionBenchRegex, handler: parsePassiveRetreatCostReductionBench},
+	{regex: damageBenchedConditionalEnergyRegex, handler: parseDamageBenchedConditionalEnergy},
+	{regex: scalingDamagePerEnergyCoinFlipRegex, handler: parseScalingDamagePerEnergyCoinFlip},
+	{regex: alternateAttackCostRegex, handler: parseAlternateAttackCost},
+	{regex: discardAllTypedEnergyRegex, handler: parseDiscardAllTypedEnergy},
+	{regex: conditionalDamageOpponentStatusRegex, handler: parseConditionalDamageOpponentStatus},
+	{regex: preventAllDamageSimpleRegex, handler: parsePreventAllDamageSimple},
+	{regex: scalingDamageBenchedTypeCountRegex, handler: parseScalingDamageBenchedTypeCount},
+	{regex: passiveDamageReductionSimpleRegex, handler: parsePassiveDamageReductionSimple},
+	{regex: conditionalDamageNoDamageRegex, handler: parseConditionalDamageNoDamage},
+	{regex: passiveRetreatCostForOtherRegex, handler: parsePassiveRetreatCostForOther},
+	{regex: recoilDamageOnCoinFlipRegex, handler: parseRecoilDamageOnCoinFlip},
+	{regex: passiveImmunitySingleStatusRegex, handler: parsePassiveImmunitySingleStatus},
+	{regex: discardDeckRegex, handler: parseDiscardDeck},
+	{regex: splashDamageSingleBenchedOpponentRegex, handler: parseSplashDamageSingleBenchedOpponent},
+	{regex: scalingDamageAllBenchedRegex, handler: parseScalingDamageAllBenched},
+	{regex: multiHitRandomGlobalRegex, handler: parseMultiHitRandomGlobal},
+	{regex: passiveSpecialConditionImmunityTypedEnergyRegex, handler: parsePassiveSpecialConditionImmunityTypedEnergy},
+	{regex: healAllFriendlyTypedRegex, handler: parseHealAllFriendlyTyped},
+	{regex: scalingDamagePerTypedEnergyCoinFlipRegex, handler: parseScalingDamagePerTypedEnergyCoinFlip},
+	{regex: healBenchedRegex, handler: parseHealBenched},
+	{regex: conditionalDamageDifferentEnergyRegex, handler: parseConditionalDamageDifferentEnergy},
+	{regex: damageEqualsSelfDamageRegex, handler: parseDamageEqualsSelfDamage},
+	{regex: setHPOnCoinFlipRegex, handler: parseSetHPOnCoinFlip},
+	{regex: shuffleFromHandMultiCoinFlipRegex, handler: parseShuffleFromHandMultiCoinFlip},
+	{regex: passiveReactiveDamageActiveRegex, handler: parsePassiveReactiveDamageActive},
+	{regex: shuffleFromHandRevealRegex, handler: parseShuffleFromHandReveal},
+	{regex: restrictionCantUseAttackRegex, handler: parseRestrictionCantUseAttack},
+	{regex: scalingDamageUntilTailsRegex, handler: parseScalingDamageUntilTails},
+	{regex: forceSwitchDamagedRegex, handler: parseForceSwitchDamaged},
+	{regex: conditionalDamageDoubleHeadsRegex, handler: parseConditionalDamageDoubleHeads},
+	{regex: scalingDamagePerPokemonInPlayRegex, handler: parseScalingDamagePerPokemonInPlay},
+	{regex: modifyNextEnergyRegex, handler: parseModifyNextEnergy},
+	{regex: passiveOpponentDamageReductionRegex, handler: parsePassiveOpponentDamageReduction},
+	{regex: conditionalDamageIfDamagedLastTurnRegex, handler: parseConditionalDamageIfDamagedLastTurn},
+	{regex: lookAtTopCardRegex, handler: parseLookAtTopCard},
+	{regex: passiveBuffStatusDamageRegex, handler: parsePassiveBuffStatusDamage},
+	{regex: attachEnergyOncePerTurnRegex, handler: parseAttachEnergyOncePerTurn},
+	{regex: searchDeckRandomPokemonRegex, handler: parseSearchDeckRandomPokemon},
+	{regex: conditionalDamageSelfHasDamageRegex, handler: parseConditionalDamageSelfHasDamage},
+	{regex: conditionalDamageOnAttackHistoryRegex, handler: parseConditionalDamageOnAttackHistory},
+	{regex: discardEnergyUntilTailsRegex, handler: parseDiscardEnergyUntilTails},
+	{regex: delayedDamageRegex, handler: parseDelayedDamage},
+	{regex: passiveReactiveDamageOnKORegex, handler: parsePassiveReactiveDamageOnKO},
+	{regex: restrictOpponentHandNextTurnRegex, handler: parseRestrictOpponentHandNextTurn},
+	{regex: passiveZeroRetreatForActiveRegex, handler: parsePassiveZeroRetreatForActive},
+	{regex: scalingDamageAttackHistoryRegex, handler: parseScalingDamageAttackHistory},
+	{regex: discardDeckBothPlayersRegex, handler: parseDiscardDeckBothPlayers},
+	{regex: passiveDamageReductionOnCoinFlipRegex, handler: parsePassiveDamageReductionOnCoinFlip},
+	{regex: moveEnergyBenchedToActiveRegex, handler: parseMoveEnergyBenchedToActive},
+	{regex: restrictOpponentHandItemRegex, handler: parseRestrictOpponentHandItem},
+	{regex: passiveDamageBuffEvolvesFromRegex, handler: parsePassiveDamageBuffEvolvesFrom},
+	{regex: forceSwitchBenchedBasicRegex, handler: parseForceSwitchBenchedBasic},
+	{regex: applyStatusBothActiveRegex, handler: parseApplyStatusBothActive},
+	{regex: applyRestrictionCantAttackRegex, handler: parseApplyRestrictionCantAttack},
+	{regex: passiveDamageReductionInPlayRegex, handler: parsePassiveDamageReductionInPlay},
+	{regex: passiveDamageBuffTypedPokemonRegex, handler: parsePassiveDamageBuffTypedPokemon},
+	{regex: drawWithDiscardCostRegex, handler: parseDrawWithDiscardCost},
+	{regex: knockoutOnCoinFlipRegex, handler: parseKnockoutOnCoinFlip},
+	{regex: passiveRestrictionEvolveRegex, handler: parsePassiveRestrictionEvolve},
+	{regex: scalingDamageBenchedBaseRegex, handler: parseScalingDamageBenchedBase},
+	{regex: scalingDamageAllOpponentEnergyRegex, handler: parseScalingDamageAllOpponentEnergy},
+	{regex: moveEnergyOnKORegex, handler: parseMoveEnergyOnKO},
+	{regex: recoilDamageOnKORegex, handler: parseRecoilDamageOnKO},
+	{regex: revealHandRegex, handler: parseRevealHand},
+	{regex: moveDamageRegex, handler: parseMoveDamage},
+	{regex: discardAllToolsRegex, handler: parseDiscardAllTools},
+	{regex: passivePreventionFromEXRegex, handler: parsePassivePreventionFromEX},
+	{regex: discardRandomEnergySelfMultipleRegex, handler: parseDiscardRandomEnergySelfMultiple},
+	{regex: splashDamageAnyFriendlyRegex, handler: parseSplashDamageAnyFriendly},
+	{regex: conditionalRestrictionOnStageRegex, handler: parseConditionalRestrictionOnStage},
+	{regex: attachEnergyScaledByCoinFlipsRegex, handler: parseAttachEnergyScaledByCoinFlips},
+	{regex: attachMultipleSpecificEnergyRegex, handler: parseAttachMultipleSpecificEnergy},
+	{regex: conditionalDamageOpponentHasStatusRegex, handler: parseConditionalDamageOpponentHasStatus},
+	{regex: applyAttackFailureChanceRegex, handler: parseApplyAttackFailureChance},
+	{regex: discardFromHandOnCoinFlipRegex, handler: parseDiscardFromHandOnCoinFlip},
+	{regex: moveEnergyAsOftenAsYouLikeRegex, handler: parseMoveEnergyAsOftenAsYouLike},
+	{regex: conditionalRestrictionOnCoinFlipRegex, handler: parseConditionalRestrictionOnCoinFlip},
+	{regex: switchSelfSubtypeRegex, handler: parseSwitchSelfSubtype},
+	{regex: attachEnergyFromDiscardWithRecoilRegex, handler: parseAttachEnergyFromDiscardWithRecoil},
+	{regex: passiveEvolveToAnyRegex, handler: parsePassiveEvolveToAny},
+	{regex: passiveCostReductionWithToolRegex, handler: parsePassiveCostReductionWithTool},
+	{regex: copyAttackWithEnergyCheckRegex, handler: parseCopyAttackWithEnergyCheck},
+	{regex: passiveIncreaseOpponentCostRegex, handler: parsePassiveIncreaseOpponentCost},
+	{regex: attachEnergyToTypedBenchedRegex, handler: parseAttachEnergyToTypedBenched},
+	{regex: conditionalDamageOpponentStageRegex, handler: parseConditionalDamageOpponentStage},
+	{regex: lookAtEitherPlayerDeckRegex, handler: parseLookAtEitherPlayerDeck},
+	{regex: persistentAttackFailureRegex, handler: parsePersistentAttackFailure},
+	{regex: healOnCoinFlipRegex, handler: parseHealOnCoinFlip},
+	{regex: discardOwnDeckAmountRegex, handler: parseDiscardOwnDeckAmount},
+	{regex: discardDeckWithConditionalDamageRegex, handler: parseDiscardDeckWithConditionalDamage},
+	{regex: conditionalDamageOnBenchedNameRegex, handler: parseConditionalDamageOnBenchedName},
+	{regex: damageHalveHPRoundedDownRegex, handler: parseDamageHalveHPRoundedDown},
+	{regex: passiveGlobalDamageReductionUnownRegex, handler: parsePassiveGlobalDamageReductionUnown},
+	{regex: applyRandomStatusRegex, handler: parseApplyRandomStatus},
+	{regex: scalingDamageDiscardToolRegex, handler: parseScalingDamageDiscardTool},
+	{regex: searchDeckToolRegex, handler: parseSearchDeckTool},
+	{regex: attachEnergyAtEndOfFirstTurnRegex, handler: parseAttachEnergyAtEndOfFirstTurn},
+	{regex: evolveOnEnergyAttachRegex, handler: parseEvolveOnEnergyAttach},
+	{regex: healActiveOncePerTurnRegex, handler: parseHealActiveOncePerTurn},
+	{regex: attachEnergyToAnyTypedFriendlyRegex, handler: parseAttachEnergyToAnyTypedFriendly},
+	{regex: passiveZeroRetreatInPlayRegex, handler: parsePassiveZeroRetreatInPlay},
+	{regex: scalingDamageSelfEnergyAllTypesRegex, handler: parseScalingDamageSelfEnergyAllTypes},
+	{regex: returnToHandOnCoinFlipRegex, handler: parseReturnToHandOnCoinFlip},
+	{regex: discardBenchedForScalingDamageRegex, handler: parseDiscardBenchedForScalingDamage},
+	{regex: passiveGlobalHealBlockRegex, handler: parsePassiveGlobalHealBlock},
+	{regex: devolveOnConditionRegex, handler: parseDevolveOnCondition},
+	{regex: shuffleHandAndDrawScaledRegex, handler: parseShuffleHandAndDrawScaled},
+	{regex: discardEnergyBothActiveRegex, handler: parseDiscardEnergyBothActive},
+	{regex: conditionalDamageBenchedDamagedRegex, handler: parseConditionalDamageBenchedDamaged},
+	{regex: shuffleFromHandOnCoinFlipRegex, handler: parseShuffleFromHandOnCoinFlip},
+	{regex: discardEnergyOpponentOnCoinFlipRegex, handler: parseDiscardEnergyOpponentOnCoinFlip},
+	{regex: drawUntilMatchHandSizeRegex, handler: parseDrawUntilMatchHandSize},
+	{regex: scalingDamageOpponentBenchedCountRegex, handler: parseScalingDamageOpponentBenchedCount},
+	{regex: copyAttackOnCoinFlipRegex, handler: parseCopyAttackOnCoinFlip},
+	{regex: snipeRandomOpponentRegex, handler: parseSnipeRandomOpponent},
+	{regex: passiveGlobalDamageBuffUnownRegex, handler: parsePassiveGlobalDamageBuffUnown},
+	{regex: preventionOnKORegex, handler: parsePreventionOnKO},
+	{regex: moveAllEnergyToBenchedRegex, handler: parseMoveAllEnergyToBenched},
+	{regex: restrictEnergyAttachmentRegex, handler: parseRestrictEnergyAttachment},
+	{regex: shuffleFromHandSimpleRegex, handler: parseShuffleFromHandSimple},
+	{regex: voluntarySwitchRegex, handler: parseVoluntarySwitch},
+	{regex: revealHandOnBenchPlayRegex, handler: parseRevealHandOnBenchPlay},
+	{regex: debuffIncomingDamageRegex, handler: parseDebuffIncomingDamage},
+	{regex: restrictionOnTailsRegex, handler: parseRestrictionOnTails},
+	{regex: conditionalDamageOpponentNameRegex, handler: parseConditionalDamageOpponentName},
+	{regex: attachEnergyToSpecificPokemonRegex, handler: parseAttachEnergyToSpecificPokemon},
+	{regex: passiveRetreatCostFirstTurnRegex, handler: parsePassiveRetreatCostFirstTurn},
+	{regex: passiveEffectPreventionRegex, handler: parsePassiveEffectPrevention},
+	{regex: applyStatusOncePerTurnAbilityRegex, handler: parseApplyStatusOncePerTurnAbility},
+	{regex: buffStackingRegex, handler: parseBuffStacking},
+	{regex: conditionalDamageIfEnergyAttachedRegex, handler: parseConditionalDamageIfEnergyAttached},
+	{regex: healOnEnergyAttachRegex, handler: parseHealOnEnergyAttach},
+	{regex: knockoutAttackerOnKORegex, handler: parseKnockoutAttackerOnKO},
+	{regex: damageAbilityInPlayRegex, handler: parseDamageAbilityInPlay},
+	{regex: finalConditionalDamageMultiCoinFlipRegex, handler: parseFinalConditionalDamageMultiCoinFlip},
+	{regex: finalPassiveDamageReductionRegex, handler: parseFinalPassiveDamageReduction},
+	{regex: finalDiscardEnergyOpponentSimpleRegex, handler: parseFinalDiscardEnergyOpponentSimple},
+	{regex: finalConditionalDamageUntilTailsRegex, handler: parseFinalConditionalDamageUntilTails},
+	{regex: finalScalingDamageOpponentEnergyBaseRegex, handler: parseFinalScalingDamageOpponentEnergyBase},
+	{regex: finalAttachEnergyToActiveTypedRegex, handler: parseFinalAttachEnergyToActiveTyped},
+	{regex: finalConditionalDamageOpponentIsEXRegex, handler: parseFinalConditionalDamageOpponentIsEX},
+	{regex: finalDiscardSelfEnergyOnTailsRegex, handler: parseFinalDiscardSelfEnergyOnTails},
+	{regex: finalReduceDamageNextTurnRegex, handler: parseFinalReduceDamageNextTurn},
+	{regex: finalForceSwitchOnHeadsRegex, handler: parseFinalForceSwitchOnHeads},
+	{regex: finalIncreaseOpponentCostNextTurnRegex, handler: parseFinalIncreaseOpponentCostNextTurn},
+	{regex: finalPreventionOnHeadsRegex, handler: parseFinalPreventionOnHeads},
+	{regex: finalSearchDeckGenericPokemonRegex, handler: parseFinalSearchDeckGenericPokemon},
+	{regex: finalForceSwitchSimpleRegex, handler: parseFinalForceSwitchSimple},
+	{regex: hariyamaPushOutRegex, handler: parseHariyamaPushOut},
+}
+
+// Parse iterates through a list of registered effect parsers and returns
+// a structured Effect object from the first one that matches the input text.
 func Parse(text string) []core.Effect {
-	// Trim whitespace for easier matching
 	text = strings.TrimSpace(text)
 
-	// --- AOE HEAL Effect ---
-	if matches := healAllFriendlyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Target:      core.TargetAllFriendly,
-				Amount:      amount,
-				Description: text,
-			}}
+	for _, p := range effectParsers {
+		if matches := p.regex.FindStringSubmatch(text); len(matches) > 0 {
+			if effects := p.handler(matches, text); effects != nil {
+				return effects
+			}
 		}
 	}
 
-	// --- HEAL Effect (Single Target) ---
-	if matches := healRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-			}}
-		}
-	}
+	// If no other rule matches, return an UNKNOWN effect type.
+	return []core.Effect{{
+		Type:        core.EffectUnknown,
+		Description: text,
+	}}
+}
 
-	// --- RESTRICTION: Can't attack next turn ---
-	if cantAttackNextTurnRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectRestrictionCantAttack,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"duration": "next_turn",
+// --- Handler Functions ---
+
+func parseHealAllFriendly(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Target:      core.TargetAllFriendly,
+		Amount:      amount,
+		Description: text},
+	}
+}
+func parseHeal(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text},
+	}
+}
+func parseCantAttackNextTurn(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectRestrictionCantAttack,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: []core.Condition{
+			core.DurationCondition{
+				Duration: core.DurationNextTurn,
 			},
-		}}
+		},
+	}}
+}
+func parseForceSwitch(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectForceSwitch,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+	}}
+}
+func parseRecoilDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- FORCE SWITCH Effect ---
-	if forceSwitchRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectForceSwitch,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-		}}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- RECOIL DAMAGE ---
-	if matches := recoilDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectRecoilDamage,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectRecoilDamage,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text},
 	}
-
-	// --- SEARCH DECK ---
-	if matches := searchDeckRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err1 := strconv.Atoi(matches[1])
-		pokemonType := matches[2]
-		if err1 == nil {
-			return []core.Effect{{
-				Type:        core.EffectSearchDeck,
-				Target:      core.TargetDeck,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"pokemonType": pokemonType,
-					"random":      true,
-					"destination": "hand",
-				},
-			}}
-		}
+}
+func parseSearchDeck(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- CONDITIONAL DAMAGE ---
-	if matches := conditionalDamageRegex.FindStringSubmatch(text); len(matches) > 3 {
-		requiredEnergyCount, err1 := strconv.Atoi(matches[1])
-		energyType := matches[2]
-		damageBonus, err2 := strconv.Atoi(matches[3])
-
-		if err1 == nil && err2 == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      damageBonus,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"requiredExtraEnergyCount": requiredEnergyCount,
-					"requiredEnergyType":       energyType,
-				},
-			}}
-		}
-	}
-
-	// --- APPLY STATUS (Opponent) ---
-	if matches := applyStatusOpponentRegex.FindStringSubmatch(text); len(matches) > 1 {
-		// Handles "Poisoned", "Poisoned and Burned", etc.
-		statusesStr := strings.ReplaceAll(matches[1], " and ", ", ")
-		statusSlice := strings.Split(statusesStr, ", ")
-
-		var effects []core.Effect
-		for _, status := range statusSlice {
-			effects = append(effects, core.Effect{
-				Type:        core.EffectApplyStatus,
-				Target:      core.TargetOpponentActive,
-				Status:      core.StatusCondition(strings.ToUpper(status)),
-				Description: text,
-			})
-		}
-		return effects
-	}
-
-	// --- APPLY STATUS (Self) ---
-	if matches := applyStatusSelfRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectApplyStatus,
-			Target:      core.TargetSelf,
-			Status:      core.StatusCondition(strings.ToUpper(matches[1])),
-			Description: text,
-		}}
-	}
-
-	// --- ATTACH ENERGY ---
-	if matches := attachEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"source":     "EnergyZone",
-				"energyType": matches[1],
-			},
-		}}
-	}
-
-	// --- SEARCH DECK (Evolution) ---
-	if matches := searchEvolutionRegex.FindStringSubmatch(text); len(matches) > 1 {
+	amount, err1 := strconv.Atoi(matches[1])
+	pokemonType := matches[2]
+	if err1 == nil {
 		return []core.Effect{{
 			Type:        core.EffectSearchDeck,
 			Target:      core.TargetDeck,
-			Amount:      1,
+			Amount:      amount,
 			Description: text,
-			Conditions: map[string]interface{}{
-				"evolvesFrom": matches[1],
-				"random":      true,
-				"destination": "hand",
+			Conditions: []core.Condition{
+				core.SearchCondition{
+					PokemonType: core.PokemonType(pokemonType),
+					Random:      true,
+					Target:      core.TargetHand,
+				},
 			},
 		}}
 	}
-
-	// --- TRIGGERED ABILITY (Komala's Comatose) ---
-	if triggeredSleepRegex.MatchString(text) {
+	return nil
+}
+func parseConditionalDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 4 {
+		return nil
+	}
+	requiredEnergyCount, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
+	}
+	energyType := matches[2]
+	damageBonus, err2 := strconv.Atoi(matches[3])
+	if err2 != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      damageBonus,
+		Description: text,
+		Conditions: []core.Condition{
+			core.EnergyCondition{
+				RequiredExtraEnergyCount: requiredEnergyCount,
+				RequiredEnergyType:       energyType,
+			},
+		}},
+	}
+}
+func parseApplyStatusOpponent(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	// Handles "Poisoned", "Poisoned and Burned", etc.
+	statusesStr := strings.ReplaceAll(matches[1], " and ", ", ")
+	statusSlice := strings.Split(statusesStr, ", ")
+	var effects []core.Effect
+	for _, status := range statusSlice {
+		effects = append(effects, core.Effect{
+			Type:        core.EffectApplyStatus,
+			Target:      core.TargetOpponentActive,
+			Status:      core.StatusCondition(strings.ToUpper(status)),
+			Description: text,
+		})
+	}
+	return effects
+}
+func parseApplyStatusSelf(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectApplyStatus,
+		Target:      core.TargetSelf,
+		Status:      core.StatusCondition(strings.ToUpper(matches[1])),
+		Description: text,
+	}}
+}
+func parseAttachEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: []core.Condition{
+			core.EnergyAttachCondition{
+				RequiredEnergyType: matches[1],
+			},
+		},
+	}}
+}
+func parseSearchEvolution(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectSearchDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: text,
+		Conditions: []core.Condition{
+			core.SearchCondition{
+				PokemonType: core.PokemonType("EVOLVES_FROM"),
+				Random:      true,
+				Target:      core.TargetHand,
+			},
+		},
+	}}
+}
+func parseTriggeredSleep(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectTriggeredAbility,
+		Target:      core.TargetSelf,
+		Status:      core.StatusAsleep,
+		Description: text,
+		Conditions: []core.Condition{
+			core.TriggerCondition{
+				Trigger: core.TriggerAttachEnergySelf,
+			},
+		},
+	}}
+}
+func parseConditionalDamageHPRatio(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: []core.Condition{
+			core.TriggerCondition{
+				Trigger: core.TriggerOponentHpGreater,
+			},
+		}},
+	}
+}
+func parseConditionalDamageEvolvedTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "EVOLVED_THIS_TURN",
+		}},
+	}
+}
+func parsePassiveDamageCheckup(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveDamage,
+		Target:      core.TargetOpponentActive,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"phase":    "CHECKUP",
+			"location": "ACTIVE",
+		}},
+	}
+}
+func parseScalingDamageRetreatCost(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "OPPONENT_RETREAT_COST",
+		}},
+	}
+}
+func parseCoinFlipTailsFails(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectAttackMayFail,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"chance": 0.5,
+			"on":     "TAILS",
+		},
+	}}
+}
+func parsePassiveRetreatCostLatias(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":           "ZERO_RETREAT_COST",
+			"requires_in_play": "Latias",
+		},
+	}}
+}
+func parseDiscardAllEnergy(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"amount": "ALL",
+		},
+	}}
+}
+func parseDiscardTypedEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"energyType": matches[2],
+		}},
+	}
+}
+func parseMoveAllTypedEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectMoveEnergy,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"source":     "ALL_FRIENDLY",
+			"energyType": matches[1],
+		},
+	}}
+}
+func parseReduceIncomingDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectReduceIncomingDamage,
+		Target:      core.TargetOpponentActive,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"duration": "next_turn",
+		}},
+	}
+}
+func parseDiscardFromHand(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardFromHand,
+		Target:      core.TargetOpponentHand,
+		Amount:      1, // "a random" implies 1
+		Description: text,
+		Conditions: map[string]interface{}{
+			"card_type": matches[1],
+			"random":    true,
+		},
+	}}
+}
+func parseCantRetreat(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "CANT_RETREAT",
+			"duration":    "next_turn",
+		},
+	}}
+}
+func parseMultiHitRandom(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	hits, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
+	}
+	damage, err2 := strconv.Atoi(matches[2])
+	if err2 != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectMultiHitRandomDamage,
+		Target:      core.TargetOpponentActive, // Target pool is opponent's field
+		Amount:      damage,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"hits": hits,
+		}},
+	}
+}
+func parseStatusOnCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	// Handles "Poisoned and Paralyzed"
+	statuses := strings.Split(matches[1], " and ")
+	return []core.Effect{{
+		Type:        core.EffectApplyStatus,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+			"statuses":     statuses,
+		},
+	}}
+}
+func parseScalingDamageSelfDamage(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "SELF_DAMAGE_COUNTERS",
+		},
+	}}
+}
+func parseSplashDamageBenchedFriendly(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDamageBenchedFriendly,
+		Target:      core.TargetBenchedFriendly,
+		Amount:      amount,
+		Description: text},
+	}
+}
+func parseConditionalDamageExistingDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "OPPONENT_HAS_DAMAGE",
+		}},
+	}
+}
+func parseConditionalDamageToolAttached(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "OPPONENT_HAS_TOOL",
+		}},
+	}
+}
+func parseGutsAbility(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	hp, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":       "PREVENT_KNOCKOUT",
+			"on_coin_flip": "HEADS",
+			"remaining_hp": hp,
+		}},
+	}
+}
+func parseSearchDeckByName(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	// Handles "Wishiwashi or Wishiwashi ex"
+	names := strings.Split(matches[1], " or ")
+	return []core.Effect{{
+		Type:        core.EffectSearchDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"pokemonNames": names,
+			"random":       true,
+			"destination":  "bench",
+		},
+	}}
+}
+func parseSnipeAndDiscardTyped(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	energyType := matches[1]
+	damage, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	discardEffect := core.Effect{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Description: "Discard all {L} Energy from this Pokémon.",
+		Conditions: map[string]interface{}{
+			"amount":     "ALL",
+			"energyType": energyType,
+		}}
+	snipeEffect := core.Effect{
+		Type:        core.EffectSnipeDamage,
+		Target:      core.TargetBenchedOpponent, // Can target any opponent's Pokémon
+		Amount:      damage,
+		Description: "This attack does 120 damage to 1 of your opponent's Pokémon.",
+	}
+	return []core.Effect{discardEffect, snipeEffect}
+}
+func parseDiscardRandomEnergySelf(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"random": true,
+		},
+	}}
+}
+func parseHealOnEvolve(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	targetType := matches[2]
+	if err == nil {
 		return []core.Effect{{
-			Type:        core.EffectTriggeredAbility,
-			Target:      core.TargetSelf,
-			Status:      core.StatusAsleep,
+			Type:        core.EffectHeal,
+			Amount:      amount,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"trigger": "ATTACH_ENERGY_TO_SELF",
+				"trigger":     "ON_EVOLVE",
+				"target_type": targetType,
 			},
 		}}
 	}
-
-	// --- CONDITIONAL DAMAGE (HP Ratio) ---
-	if matches := conditionalDamageHPRatioRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_HP_GREATER",
-				},
-			}}
-		}
+	return nil
+}
+func parseForceSwitchOncePerTurn(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectForceSwitch,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ONCE_PER_TURN",
+		},
+	}}
+}
+func parseReduceDamageNextTurnSelf(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- CONDITIONAL DAMAGE (Evolved this turn) ---
-	if matches := conditionalDamageEvolvedTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "EVOLVED_THIS_TURN",
-				},
-			}}
-		}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- PASSIVE DAMAGE (Checkup) ---
-	if matches := passiveDamageCheckupRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveDamage,
-				Target:      core.TargetOpponentActive,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"phase":    "CHECKUP",
-					"location": "ACTIVE",
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectReduceIncomingDamage,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"duration": "opponent_next_turn",
+		}},
 	}
-
-	// --- SCALING DAMAGE (Opponent Retreat Cost) ---
-	if matches := scalingDamageRetreatCostRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "OPPONENT_RETREAT_COST",
-				},
-			}}
-		}
+}
+func parseCopyAttack(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectCopyAttack,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+	}}
+}
+func parsePassiveDamageReductionTyped(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- ATTACK MAY FAIL (Coin Flip) ---
-	if coinFlipTailsFailsRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectAttackMayFail,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"chance": 0.5,
-				"on":     "TAILS",
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Retreat Cost) ---
-	if passiveRetreatCostLatiasRegex.MatchString(text) {
+	amount, err := strconv.Atoi(matches[1])
+	// Handles "{R}" or "{R} or {W}"
+	typesStr := strings.ReplaceAll(matches[2], "{", "")
+	typesStr = strings.ReplaceAll(typesStr, "}", "")
+	types := strings.Split(typesStr, " or ")
+	if err == nil {
 		return []core.Effect{{
 			Type:        core.EffectPassiveAbility,
 			Target:      core.TargetSelf,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"effect":           "ZERO_RETREAT_COST",
-				"requires_in_play": "Latias",
+				"effect":     "REDUCE_INCOMING_DAMAGE",
+				"amount":     amount,
+				"from_types": types,
 			},
 		}}
 	}
-
-	// --- DISCARD ENERGY (All) ---
-	if discardAllEnergyRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"amount": "ALL",
-			},
-		}}
+	return nil
+}
+func parseDrawAtEndOfTurn(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDraw,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":  "END_OF_TURN",
+			"location": "ACTIVE",
+		},
+	}}
+}
+func parseApplyStatusOncePerTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- DISCARD ENERGY (Typed) ---
-	if matches := discardTypedEnergyRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDiscardEnergy,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"energyType": matches[2],
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectApplyStatus,
+		Target:      core.TargetOpponentActive,
+		Status:      core.StatusCondition(strings.ToUpper(matches[1])),
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":  "ONCE_PER_TURN",
+			"location": "ACTIVE",
+		},
+	}}
+}
+func parseDiscardRandomEnergyGlobal(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetAllPokemonInPlay,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"random": true,
+		},
+	}}
+}
+func parseSwitchSelf(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectSwitchSelf,
+		Target:      core.TargetBenchedFriendly,
+		Description: text,
+	}}
+}
+func parseSnipeDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- MOVE ENERGY ---
-	if matches := moveAllTypedEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectMoveEnergy,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"source":     "ALL_FRIENDLY",
-				"energyType": matches[1],
-			},
-		}}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- REDUCE INCOMING DAMAGE ---
-	if matches := reduceIncomingDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectReduceIncomingDamage,
-				Target:      core.TargetOpponentActive,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"duration": "next_turn",
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectSnipeDamage,
+		Target:      core.TargetBenchedOpponent, // User chooses which one
+		Amount:      amount,
+		Description: text},
 	}
-
-	// --- DISCARD FROM HAND ---
-	if matches := discardFromHandRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectDiscardFromHand,
-			Target:      core.TargetOpponentHand,
-			Amount:      1, // "a random" implies 1
-			Description: text,
-			Conditions: map[string]interface{}{
-				"card_type": matches[1],
-				"random":    true,
-			},
-		}}
+}
+func parseHealOncePerTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- APPLY RESTRICTION (Can't Retreat) ---
-	if cantRetreatRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction": "CANT_RETREAT",
-				"duration":    "next_turn",
-			},
-		}}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- MULTI-HIT RANDOM DAMAGE ---
-	if matches := multiHitRandomRegex.FindStringSubmatch(text); len(matches) > 2 {
-		hits, err1 := strconv.Atoi(matches[1])
-		damage, err2 := strconv.Atoi(matches[2])
-		if err1 == nil && err2 == nil {
-			return []core.Effect{{
-				Type:        core.EffectMultiHitRandomDamage,
-				Target:      core.TargetOpponentActive, // Target pool is opponent's field
-				Amount:      damage,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"hits": hits,
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":  "ONCE_PER_TURN",
+			"location": "ACTIVE",
+		}},
 	}
-
-	// --- APPLY STATUS (On Coin Flip) ---
-	if matches := statusOnCoinFlipRegex.FindStringSubmatch(text); len(matches) > 1 {
-		// Handles "Poisoned and Paralyzed"
-		statuses := strings.Split(matches[1], " and ")
-		return []core.Effect{{
-			Type:        core.EffectApplyStatus,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-				"statuses":     statuses,
-			},
-		}}
+}
+func parseAttachEnergyEndsTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- SCALING DAMAGE (Self Damage) ---
-	if scalingDamageSelfDamageRegex.MatchString(text) {
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":    "ONCE_PER_TURN",
+			"energyType": matches[1],
+			"source":     "EnergyZone",
+			"effect":     "ENDS_TURN",
+		},
+	}}
+}
+func parseDiscardEnergyOnEvolve(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetOpponentActive,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ON_EVOLVE",
+			"random":  true,
+		},
+	}}
+}
+func parseScalingDamageSelfEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	energyType := matches[2]
+	if err == nil {
 		return []core.Effect{{
 			Type:        core.EffectScalingDamage,
+			Amount:      amount,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"scale_by": "SELF_DAMAGE_COUNTERS",
+				"scale_by":      "SELF_ATTACHED_ENERGY",
+				"scale_by_type": energyType,
 			},
 		}}
 	}
-
-	// --- SPLASH DAMAGE (Friendly Bench) ---
-	if matches := splashDamageBenchedFriendlyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDamageBenchedFriendly,
-				Target:      core.TargetBenchedFriendly,
-				Amount:      amount,
-				Description: text,
-			}}
-		}
+	return nil
+}
+func parseDrawCard(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDraw,
+		Amount:      1,
+		Description: text,
+	}}
+}
+func parseAttachEnergyMultiBenched(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- CONDITIONAL DAMAGE (Opponent has damage) ---
-	if matches := conditionalDamageExistingDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_HAS_DAMAGE",
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Opponent has tool) ---
-	if matches := conditionalDamageToolAttachedRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_HAS_TOOL",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Guts) ---
-	if matches := gutsAbilityRegex.FindStringSubmatch(text); len(matches) > 1 {
-		hp, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Target:      core.TargetSelf,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":       "PREVENT_KNOCKOUT",
-					"on_coin_flip": "HEADS",
-					"remaining_hp": hp,
-				},
-			}}
-		}
-	}
-
-	// --- SEARCH DECK (By Name) ---
-	if matches := searchDeckByNameRegex.FindStringSubmatch(text); len(matches) > 1 {
-		// Handles "Wishiwashi or Wishiwashi ex"
-		names := strings.Split(matches[1], " or ")
-		return []core.Effect{{
-			Type:        core.EffectSearchDeck,
-			Target:      core.TargetDeck,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"pokemonNames": names,
-				"random":       true,
-				"destination":  "bench",
-			},
-		}}
-	}
-
-	// --- SNIPE and DISCARD (Luxray) ---
-	if matches := snipeAndDiscardTypedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		energyType := matches[1]
-		damage, err := strconv.Atoi(matches[2])
-		if err == nil {
-			discardEffect := core.Effect{
-				Type:        core.EffectDiscardEnergy,
-				Target:      core.TargetSelf,
-				Description: "Discard all {L} Energy from this Pokémon.",
-				Conditions: map[string]interface{}{
-					"amount":     "ALL",
-					"energyType": energyType,
-				},
-			}
-			snipeEffect := core.Effect{
-				Type:        core.EffectSnipeDamage,
-				Target:      core.TargetBenchedOpponent, // Can target any opponent's Pokémon
-				Amount:      damage,
-				Description: "This attack does 120 damage to 1 of your opponent's Pokémon.",
-			}
-			return []core.Effect{discardEffect, snipeEffect}
-		}
-	}
-
-	// --- DISCARD ENERGY (Random Self) ---
-	if discardRandomEnergySelfRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetSelf,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"random": true,
-			},
-		}}
-	}
-
-	// --- HEAL (On Evolve) ---
-	if matches := healOnEvolveRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		targetType := matches[2]
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":     "ON_EVOLVE",
-					"target_type": targetType,
-				},
-			}}
-		}
-	}
-
-	// --- FORCE SWITCH (Once per turn ability) ---
-	if forceSwitchOncePerTurnRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectForceSwitch,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger": "ONCE_PER_TURN",
-			},
-		}}
-	}
-
-	// --- REDUCE INCOMING DAMAGE (Self, next turn) ---
-	if matches := reduceDamageNextTurnSelfRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectReduceIncomingDamage,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"duration": "opponent_next_turn",
-				},
-			}}
-		}
-	}
-
-	// --- COPY ATTACK ---
-	if copyAttackRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectCopyAttack,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Damage Reduction by Type) ---
-	if matches := passiveDamageReductionTypedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		// Handles "{R}" or "{R} or {W}"
-		typesStr := strings.ReplaceAll(matches[2], "{", "")
-		typesStr = strings.ReplaceAll(typesStr, "}", "")
-		types := strings.Split(typesStr, " or ")
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Target:      core.TargetSelf,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":     "REDUCE_INCOMING_DAMAGE",
-					"amount":     amount,
-					"from_types": types,
-				},
-			}}
-		}
-	}
-
-	// --- DRAW (End of turn) ---
-	if drawAtEndOfTurnRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDraw,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":  "END_OF_TURN",
-				"location": "ACTIVE",
-			},
-		}}
-	}
-
-	// --- APPLY STATUS (Once per turn ability) ---
-	if matches := applyStatusOncePerTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectApplyStatus,
-			Target:      core.TargetOpponentActive,
-			Status:      core.StatusCondition(strings.ToUpper(matches[1])),
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":  "ONCE_PER_TURN",
-				"location": "ACTIVE",
-			},
-		}}
-	}
-
-	// --- DISCARD ENERGY (Random Global) ---
-	if discardRandomEnergyGlobalRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetAllPokemonInPlay,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"random": true,
-			},
-		}}
-	}
-
-	// --- SWITCH SELF ---
-	if switchSelfRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectSwitchSelf,
-			Target:      core.TargetBenchedFriendly,
-			Description: text,
-		}}
-	}
-
-	// --- SNIPE DAMAGE (Standalone) ---
-	if matches := snipeDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectSnipeDamage,
-				Target:      core.TargetBenchedOpponent, // User chooses which one
-				Amount:      amount,
-				Description: text,
-			}}
-		}
-	}
-
-	// --- HEAL (Once per turn ability) ---
-	if matches := healOncePerTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":  "ONCE_PER_TURN",
-					"location": "ACTIVE",
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (Ends turn) ---
-	if matches := attachEnergyEndsTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":    "ONCE_PER_TURN",
-				"energyType": matches[1],
-				"source":     "EnergyZone",
-				"effect":     "ENDS_TURN",
-			},
-		}}
-	}
-
-	// --- DISCARD ENERGY (On Evolve) ---
-	if discardEnergyOnEvolveRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetOpponentActive,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger": "ON_EVOLVE",
-				"random":  true,
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (Self Attached Energy) ---
-	if matches := scalingDamageSelfEnergyRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		energyType := matches[2]
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":      "SELF_ATTACHED_ENERGY",
-					"scale_by_type": energyType,
-				},
-			}}
-		}
-	}
-
-	// --- DRAW (Simple) ---
-	if drawCardRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDraw,
-			Amount:      1,
-			Description: text,
-		}}
-	}
-
-	// --- ATTACH ENERGY (Multi-Benched) ---
-	if matches := attachEnergyMultiBenchedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		count, err1 := strconv.Atoi(matches[1])
-		energyType := matches[2]
-		if err1 == nil {
-			return []core.Effect{{
-				Type:        core.EffectAttachEnergy,
-				Target:      core.TargetBenchedFriendly,
-				Amount:      count,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"source":     "EnergyZone",
-					"energyType": energyType,
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Played Supporter) ---
-	if matches := conditionalDamageSupporterRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "PLAYED_SUPPORTER_THIS_TURN",
-				},
-			}}
-		}
-	}
-
-	// --- DRAW (On Evolve) ---
-	if matches := drawOnEvolveRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDraw,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "ON_EVOLVE",
-				},
-			}}
-		}
-	}
-
-	// --- DISCARD ENERGY (Single Typed) ---
-	if matches := discardSingleTypedEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetSelf,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"energyType": matches[1],
-			},
-		}}
-	}
-
-	// --- SHUFFLE INTO DECK (On Coin Flip) ---
-	if shuffleIntoDeckOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectShuffleIntoDeck,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (Opponent Attached Energy) ---
-	if matches := scalingDamageOpponentEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "OPPONENT_ATTACHED_ENERGY",
-				},
-			}}
-		}
-	}
-
-	// --- APPLY PREVENTION (On Coin Flip) ---
-	if preventAllDamageOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyPrevention,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-				"duration":     "opponent_next_turn",
-				"prevent":      "ALL_DAMAGE_AND_EFFECTS",
-			},
-		}}
-	}
-
-	// --- APPLY RESTRICTION (Increase opponent costs) ---
-	if matches := increaseOpponentCostsRegex.FindStringSubmatch(text); len(matches) > 4 {
-		attackCost, err1 := strconv.Atoi(matches[1])
-		retreatCost, err2 := strconv.Atoi(matches[3])
-		if err1 == nil && err2 == nil {
-			attackCostEffect := core.Effect{
-				Type:        core.EffectApplyRestriction,
-				Target:      core.TargetOpponentActive,
-				Description: "Increase opponent's attack cost",
-				Conditions: map[string]interface{}{
-					"restriction": "INCREASE_ATTACK_COST",
-					"amount":      attackCost,
-					"energyType":  matches[2],
-					"duration":    "opponent_next_turn",
-				},
-			}
-			retreatCostEffect := core.Effect{
-				Type:        core.EffectApplyRestriction,
-				Target:      core.TargetOpponentActive,
-				Description: "Increase opponent's retreat cost",
-				Conditions: map[string]interface{}{
-					"restriction": "INCREASE_RETREAT_COST",
-					"amount":      retreatCost,
-					"energyType":  matches[4],
-					"duration":    "opponent_next_turn",
-				},
-			}
-			return []core.Effect{attackCostEffect, retreatCostEffect}
-		}
-	}
-
-	// --- SNIPE DAMAGE (Damaged Pokémon) ---
-	if matches := snipeDamagedPokemonRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectSnipeDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"target_condition": "HAS_DAMAGE",
-				},
-			}}
-		}
-	}
-
-	// --- SWITCH SELF (From Bench) ---
-	if switchSelfFromBenchRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectSwitchSelf,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":  "ONCE_PER_TURN",
-				"location": "BENCH",
-			},
-		}}
-	}
-
-	// --- CONDITIONAL DAMAGE (Self has tool) ---
-	if matches := conditionalDamageSelfToolRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "SELF_HAS_TOOL",
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (Multiple) ---
-	if matches := attachMultipleEnergyRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		energyType := matches[2]
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectAttachEnergy,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"source":     "EnergyZone",
-					"energyType": energyType,
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Cost Reduction) ---
-	if matches := passiveCostReductionInPlayRegex.FindStringSubmatch(text); len(matches) > 3 {
-		// Handles "Arceus or Arceus ex"
-		names := strings.Split(matches[1], " or ")
-		amount, err1 := strconv.Atoi(matches[2])
-		energyType := matches[3]
-		if err1 == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":           "REDUCE_ATTACK_COST",
-					"requires_in_play": names,
-					"amount":           amount,
-					"energyType":       energyType,
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Opponent has Ability) ---
-	if matches := conditionalDamageOpponentAbilityRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_HAS_ABILITY",
-				},
-			}}
-		}
-	}
-
-	// --- SCALING SNIPE DAMAGE (Opponent Energy) ---
-	if matches := scalingSnipeOpponentEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingSnipeDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "TARGET_ATTACHED_ENERGY",
-				},
-			}}
-		}
-	}
-
-	// --- SNIPE DAMAGE (Once per turn ability) ---
-	if matches := snipeOncePerTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectSnipeDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "ONCE_PER_TURN",
-				},
-			}}
-		}
-	}
-
-	// --- SCALING DAMAGE (Benched Pokémon Name) ---
-	if matches := scalingDamageBenchedNameRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		name := matches[2]
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":      "BENCHED_POKEMON_NAME",
-					"scale_by_name": name,
-				},
-			}}
-		}
-	}
-
-	// --- DAMAGE BENCHED OPPONENT (All) ---
-	if matches := damageBenchedOpponentAllRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDamageBenchedOpponentAll,
-				Target:      core.TargetBenchedOpponentAll,
-				Amount:      amount,
-				Description: text,
-			}}
-		}
-	}
-
-	// --- LIFESTEAL ---
-	if lifestealRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectLifesteal,
-			Target:      core.TargetSelf,
-			Description: text,
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Energy Value) ---
-	if matches := passiveEnergyValueRegex.FindStringSubmatch(text); len(matches) > 3 {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":       "ENERGY_VALUE_DOUBLED",
-				"energy_type":  matches[1],
-				"pokemon_type": matches[2],
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (Multi-coin flip) ---
-	if matches := scalingDamageMultiCoinFlipRegex.FindStringSubmatch(text); len(matches) > 2 {
-		flips, err1 := strconv.Atoi(matches[1])
-		amount, err2 := strconv.Atoi(matches[2])
-		if err1 == nil && err2 == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":  "COIN_FLIP_HEADS",
-					"num_flips": flips,
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Switched in) ---
-	if matches := conditionalDamageSwitchInRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "SWITCHED_IN_THIS_TURN",
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Coin Flip Scaling) ---
-	if matches := conditionalDamageCoinFlipScalingRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "COIN_FLIP_HEADS",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Immunity) ---
-	if passiveImmunityRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect": "IMMUNE_TO_SPECIAL_CONDITIONS",
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (Benched Pokémon count) ---
-	if matches := scalingDamageBenchedCountRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "BENCHED_POKEMON_COUNT",
-				},
-			}}
-		}
-	}
-
-	// --- APPLY REACTIVE DAMAGE ---
-	if matches := reactiveDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectApplyReactiveDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"duration": "opponent_next_turn",
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (To Active Typed Pokémon) ---
-	if matches := attachEnergyToActiveTypedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":         "ONCE_PER_TURN",
-				"source":          "EnergyZone",
-				"energyType":      matches[1],
-				"target_location": "ACTIVE",
-				"target_type":     matches[2],
-			},
-		}}
-	}
-
-	// --- BUFF NEXT TURN ---
-	if matches := buffNextTurnRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectBuffNextTurn,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"attack_name": matches[1],
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (To Benched) ---
-	if matches := attachEnergyToBenchedRegex.FindStringSubmatch(text); len(matches) > 1 {
+	count, err1 := strconv.Atoi(matches[1])
+	energyType := matches[2]
+	if err1 == nil {
 		return []core.Effect{{
 			Type:        core.EffectAttachEnergy,
 			Target:      core.TargetBenchedFriendly,
-			Amount:      1,
+			Amount:      count,
 			Description: text,
 			Conditions: map[string]interface{}{
 				"source":     "EnergyZone",
-				"energyType": matches[1],
+				"energyType": energyType,
 			},
 		}}
 	}
-
-	// --- SCALING DAMAGE (Benched Pokémon Type) ---
-	if matches := scalingDamageBenchedTypeRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":      "BENCHED_POKEMON_TYPE",
-					"scale_by_type": "EVOLUTION",
-				},
-			}}
-		}
+	return nil
+}
+func parseConditionalDamageSupporter(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- PASSIVE ABILITY (Restriction) ---
-	if matches := passiveRestrictionRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":    "RESTRICT_OPPONENT_PLAY",
-				"card_type": matches[1],
-				"location":  "ACTIVE",
-			},
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "PLAYED_SUPPORTER_THIS_TURN",
+		}},
+	}
+}
+func parseDrawOnEvolve(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDraw,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ON_EVOLVE",
+		}},
+	}
+}
+func parseDiscardSingleTypedEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"energyType": matches[1],
+		},
+	}}
+}
+func parseShuffleIntoDeckOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectShuffleIntoDeck,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+		},
+	}}
+}
+func parseScalingDamageOpponentEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "OPPONENT_ATTACHED_ENERGY",
+		}},
+	}
+}
+func parsePreventAllDamageOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyPrevention,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+			"duration":     "opponent_next_turn",
+			"prevent":      "ALL_DAMAGE_AND_EFFECTS",
+		},
+	}}
+}
+func parseIncreaseOpponentCosts(matches []string, text string) []core.Effect {
+	if len(matches) < 5 {
+		return nil
+	}
+	attackCost, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
+	}
+	retreatCost, err2 := strconv.Atoi(matches[3])
+	if err2 != nil {
+		return nil
+	}
+	attackCostEffect := core.Effect{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: "Increase opponent's attack cost",
+		Conditions: map[string]interface{}{
+			"restriction": "INCREASE_ATTACK_COST",
+			"amount":      attackCost,
+			"energyType":  matches[2],
+			"duration":    "opponent_next_turn",
 		}}
+	retreatCostEffect := core.Effect{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: "Increase opponent's retreat cost",
+		Conditions: map[string]interface{}{
+			"restriction": "INCREASE_RETREAT_COST",
+			"amount":      retreatCost,
+			"energyType":  matches[4],
+			"duration":    "opponent_next_turn",
+		},
 	}
-
-	// --- MODIFY ENERGY ---
-	if matches := modifyEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		typesStr := strings.ReplaceAll(matches[1], "{", "")
-		types := strings.Split(typesStr, "}, ")
-		types[len(types)-1] = strings.TrimSuffix(types[len(types)-1], "}")
-
-		return []core.Effect{{
-			Type:        core.EffectModifyEnergy,
-			Target:      core.TargetOpponentActive,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"random_energy":  true,
-				"random_type":    true,
-				"possible_types": types,
-			},
-		}}
+	return []core.Effect{attackCostEffect, retreatCostEffect}
+}
+func parseSnipeDamagedPokemon(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- TRIGGERED DAMAGE (On Energy Attach) ---
-	if matches := triggeredDamageOnEnergyAttachRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveDamage,
-				Target:      core.TargetOpponentActive,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":     "ATTACH_ENERGY_TO_SELF",
-					"energy_type": matches[1],
-				},
-			}}
-		}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- SWITCH SELF (Typed) ---
-	if matches := switchSelfTypedRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectSwitchSelf,
-			Target:      core.TargetBenchedFriendly,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"target_type": matches[1],
-			},
-		}}
+	return []core.Effect{{
+		Type:        core.EffectSnipeDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_condition": "HAS_DAMAGE",
+		}},
 	}
-
-	// --- CONDITIONAL DAMAGE (Opponent has specific property) ---
-	if matches := conditionalDamageOpponentPropertyRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":  "OPPONENT_HAS_PROPERTY",
-					"property": strings.ToUpper(matches[1]),
-				},
-			}}
-		}
+}
+func parseSwitchSelfFromBench(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectSwitchSelf,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":  "ONCE_PER_TURN",
+			"location": "BENCH",
+		},
+	}}
+}
+func parseConditionalDamageSelfTool(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- CONDITIONAL DAMAGE (Friendly KO'd last turn) ---
-	if matches := conditionalDamageOnKORegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "FRIENDLY_KO_LAST_TURN",
-				},
-			}}
-		}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- SPLASH DAMAGE (Friendly Bench All) ---
-	if matches := splashDamageBenchedFriendlyAllRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDamageBenchedFriendly,
-				Target:      core.TargetBenchedFriendly,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"target_all": true,
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "SELF_HAS_TOOL",
+		}},
 	}
-
-	// --- SCALING DAMAGE (Benched Pokémon Names) ---
-	if matches := scalingDamageBenchedNamesRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		// Handles "Wishiwashi and Wishiwashi ex"
-		names := strings.Split(matches[2], " and ")
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":       "BENCHED_POKEMON_NAMES",
-					"scale_by_names": names,
-				},
-			}}
-		}
+}
+func parseAttachMultipleEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- DISCARD ENERGY (Multiple specific types) ---
-	if matches := discardMultipleTypedEnergyRegex.FindStringSubmatch(text); len(matches) > 3 {
-		types := []string{matches[1], matches[2], matches[3]}
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetSelf,
-			Amount:      3,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"energyTypes": types,
-			},
-		}}
-	}
-
-	// --- ATTACH ENERGY (To Benched Stage) ---
-	if matches := attachEnergyToBenchedStageRegex.FindStringSubmatch(text); len(matches) > 2 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Target:      core.TargetBenchedFriendly,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"source":       "EnergyZone",
-				"energyType":   matches[1],
-				"target_stage": matches[2],
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Damage Buff) ---
-	if matches := passiveDamageBuffInPlayRegex.FindStringSubmatch(text); len(matches) > 2 {
-		names := strings.Split(matches[1], " or ")
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":           "BUFF_DAMAGE_OUTPUT",
-					"amount":           amount,
-					"requires_in_play": names,
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Damage Prevention Coin Flip) ---
-	if passiveDamagePreventionCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":       "PREVENT_INCOMING_DAMAGE",
-				"on_coin_flip": "HEADS",
-			},
-		}}
-	}
-
-	// --- HEAL (End of turn) ---
-	if matches := healAtEndOfTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":  "END_OF_TURN",
-					"location": "ACTIVE",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Zero Retreat Cost) ---
-	if passiveRetreatCostEnergyRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":  "ZERO_RETREAT_COST",
-				"trigger": "HAS_ENERGY_ATTACHED",
-			},
-		}}
-	}
-
-	// --- DAMAGE ALL OPPONENT POKEMON ---
-	if matches := damageAllOpponentRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDamageAllOpponent,
-				Amount:      amount,
-				Description: text,
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Retreat Cost Reduction for others) ---
-	if matches := passiveRetreatCostReductionBenchRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":       "REDUCE_RETREAT_COST",
-					"location":     "BENCH",
-					"target":       "ACTIVE",
-					"target_stage": matches[1],
-					"amount":       amount,
-				},
-			}}
-		}
-	}
-
-	// --- DAMAGE BENCHED OPPONENT (Conditional on Energy) ---
-	if matches := damageBenchedConditionalEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDamageBenchedOpponentAll,
-				Target:      core.TargetBenchedOpponentAll,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"target_condition": "HAS_ENERGY_ATTACHED",
-				},
-			}}
-		}
-	}
-
-	// --- SCALING DAMAGE (Coin flips per energy) ---
-	if matches := scalingDamagePerEnergyCoinFlipRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":            "COIN_FLIP_HEADS",
-					"num_flips_scales_by": "SELF_ATTACHED_ENERGY",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Alternate Attack Cost) ---
-	if matches := alternateAttackCostRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":      "ALTERNATE_ATTACK_COST",
-					"trigger":     "SELF_HAS_DAMAGE",
-					"cost_amount": amount,
-					"cost_type":   matches[2],
-				},
-			}}
-		}
-	}
-
-	// --- DISCARD ENERGY (All of a specific type) ---
-	if matches := discardAllTypedEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"amount":     "ALL",
-				"energyType": matches[1],
-			},
-		}}
-	}
-
-	// --- CONDITIONAL DAMAGE (Opponent has status) ---
-	if matches := conditionalDamageOpponentStatusRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_HAS_STATUS",
-					"status":  strings.ToUpper(matches[1]),
-				},
-			}}
-		}
-	}
-
-	// --- APPLY PREVENTION (Damage only) ---
-	if preventAllDamageSimpleRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyPrevention,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-				"duration":     "opponent_next_turn",
-				"prevent":      "ALL_DAMAGE",
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (Benched Pokémon Type Count) ---
-	if matches := scalingDamageBenchedTypeCountRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":      "BENCHED_POKEMON_TYPE_COUNT",
-					"scale_by_type": matches[2],
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Simple Damage Reduction) ---
-	if matches := passiveDamageReductionSimpleRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Target:      core.TargetSelf,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect": "REDUCE_INCOMING_DAMAGE",
-					"amount": amount,
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Self has no damage) ---
-	if matches := conditionalDamageNoDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "SELF_HAS_NO_DAMAGE",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Zero Retreat for another Pokémon) ---
-	if matches := passiveRetreatCostForOtherRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":          "ZERO_RETREAT_COST",
-				"target_name":     matches[1],
-				"target_location": "ACTIVE",
-			},
-		}}
-	}
-
-	// --- RECOIL DAMAGE (On Coin Flip) ---
-	if matches := recoilDamageOnCoinFlipRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectRecoilDamage,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"on_coin_flip": "TAILS",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Single Status Immunity) ---
-	if matches := passiveImmunitySingleStatusRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect": "IMMUNE_TO_STATUS",
-				"status": strings.ToUpper(matches[1]),
-			},
-		}}
-	}
-
-	// --- DISCARD DECK ---
-	if discardDeckRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardDeck,
-			Target:      core.TargetOpponentActive, // Implied target is opponent
-			Amount:      1,
-			Description: text,
-		}}
-	}
-
-	// --- SPLASH DAMAGE (Single Benched Opponent) ---
-	if matches := splashDamageSingleBenchedOpponentRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectSnipeDamage,
-				Target:      core.TargetBenchedOpponent,
-				Amount:      amount,
-				Description: text,
-			}}
-		}
-	}
-
-	// --- SCALING DAMAGE (All Benched Pokémon) ---
-	if matches := scalingDamageAllBenchedRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "ALL_BENCHED_POKEMON_COUNT",
-				},
-			}}
-		}
-	}
-
-	// --- MULTI-HIT RANDOM DAMAGE (Global Pool) ---
-	if matches := multiHitRandomGlobalRegex.FindStringSubmatch(text); len(matches) > 2 {
-		hits, err1 := strconv.Atoi(matches[1])
-		damage, err2 := strconv.Atoi(matches[2])
-		if err1 == nil && err2 == nil {
-			return []core.Effect{{
-				Type:        core.EffectMultiHitRandomDamage,
-				Amount:      damage,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"hits":        hits,
-					"target_pool": "GLOBAL_OTHER",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Special Condition Immunity via Energy) ---
-	if matches := passiveSpecialConditionImmunityTypedEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":      "IMMUNE_TO_SPECIAL_CONDITIONS",
-				"target":      "ALL_FRIENDLY",
-				"trigger":     "HAS_ENERGY_ATTACHED",
-				"energy_type": matches[1],
-			},
-		}}
-	}
-
-	// --- HEAL (All friendly of a type) ---
-	if matches := healAllFriendlyTypedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":     "ONCE_PER_TURN",
-					"target_all":  true,
-					"target_type": matches[2],
-				},
-			}}
-		}
-	}
-
-	// --- SCALING DAMAGE (Coin flips per typed energy) ---
-	if matches := scalingDamagePerTypedEnergyCoinFlipRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":            "COIN_FLIP_HEADS",
-					"num_flips_scales_by": "SELF_ATTACHED_ENERGY_TYPED",
-					"energy_type":         matches[1],
-				},
-			}}
-		}
-	}
-
-	// --- HEAL (Benched) ---
-	if matches := healBenchedRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Target:      core.TargetBenchedFriendly,
-				Amount:      amount,
-				Description: text,
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Different Energy Types) ---
-	if matches := conditionalDamageDifferentEnergyRegex.FindStringSubmatch(text); len(matches) > 2 {
-		count, err1 := strconv.Atoi(matches[1])
-		amount, err2 := strconv.Atoi(matches[2])
-		if err1 == nil && err2 == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":        "DIFFERENT_ENERGY_TYPES_ATTACHED",
-					"required_count": count,
-				},
-			}}
-		}
-	}
-
-	// --- DAMAGE (Equals self damage) ---
-	if damageEqualsSelfDamageRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDamage, // This is a direct damage effect, not a bonus
-			Description: text,
-			Conditions: map[string]interface{}{
-				"amount_equals": "SELF_DAMAGE_COUNTERS",
-			},
-		}}
-	}
-
-	// --- SET HP (On Coin Flip) ---
-	if matches := setHPOnCoinFlipRegex.FindStringSubmatch(text); len(matches) > 1 {
-		hp, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectSetHP,
-				Target:      core.TargetOpponentActive,
-				Amount:      hp,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"on_coin_flip": "HEADS",
-				},
-			}}
-		}
-	}
-
-	// --- SHUFFLE FROM HAND (Multi-coin flip) ---
-	if matches := shuffleFromHandMultiCoinFlipRegex.FindStringSubmatch(text); len(matches) > 1 {
-		flips, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectShuffleFromHand,
-				Target:      core.TargetOpponentHand,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":  "COIN_FLIP_HEADS",
-					"num_flips": flips,
-					"random":    true,
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Reactive Damage) ---
-	if matches := passiveReactiveDamageActiveRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":   "REACTIVE_DAMAGE",
-					"amount":   amount,
-					"location": "ACTIVE",
-				},
-			}}
-		}
-	}
-
-	// --- SHUFFLE FROM HAND (Reveal and choose) ---
-	if shuffleFromHandRevealRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectShuffleFromHand,
-			Target:      core.TargetOpponentHand,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"reveal_hand":    true,
-				"player_chooses": true,
-			},
-		}}
-	}
-
-	// --- APPLY RESTRICTION (Can't use same attack) ---
-	if matches := restrictionCantUseAttackRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction": "CANT_USE_ATTACK",
-				"attack_name": matches[1],
-				"duration":    "next_turn",
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (Flip until tails) ---
-	if matches := scalingDamageUntilTailsRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "COIN_FLIP_HEADS_UNTIL_TAILS",
-				},
-			}}
-		}
-	}
-
-	// --- FORCE SWITCH (Opponent must choose damaged) ---
-	if forceSwitchDamagedRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectForceSwitch,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":          "ONCE_PER_TURN",
-				"location":         "ACTIVE",
-				"target_condition": "HAS_DAMAGE",
-			},
-		}}
-	}
-
-	// --- CONDITIONAL DAMAGE (Double Heads) ---
-	if matches := conditionalDamageDoubleHeadsRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"on_coin_flip": "DOUBLE_HEADS",
-				},
-			}}
-		}
-	}
-
-	// --- SCALING DAMAGE (Per Pokémon in Play) ---
-	if matches := scalingDamagePerPokemonInPlayRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":            "COIN_FLIP_HEADS",
-					"num_flips_scales_by": "ALL_POKEMON_IN_PLAY",
-				},
-			}}
-		}
-	}
-
-	// --- MODIFY ENERGY (Next generated) ---
-	if matches := modifyNextEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		typesStr := strings.ReplaceAll(matches[1], "{", "")
-		types := strings.Split(typesStr, "}, ")
-		types[len(types)-1] = strings.TrimSuffix(types[len(types)-1], "}")
-
-		return []core.Effect{{
-			Type:        core.EffectModifyEnergy,
-			Target:      core.TargetOpponentActive, // Implied target is opponent
-			Description: text,
-			Conditions: map[string]interface{}{
-				"target_energy":  "NEXT_GENERATED",
-				"random_type":    true,
-				"possible_types": types,
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Opponent Damage Reduction) ---
-	if matches := passiveOpponentDamageReductionRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":   "REDUCE_OPPONENT_DAMAGE_OUTPUT",
-					"amount":   amount,
-					"location": "ACTIVE",
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (If damaged last turn) ---
-	if matches := conditionalDamageIfDamagedLastTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "DAMAGED_LAST_TURN",
-				},
-			}}
-		}
-	}
-
-	// --- LOOK AT DECK ---
-	if lookAtTopCardRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectLookAtDeck,
-			Target:      core.TargetDeck,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger": "ONCE_PER_TURN",
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Buff Status Damage) ---
-	if matches := passiveBuffStatusDamageRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect": "BUFF_STATUS_DAMAGE",
-					"amount": amount,
-					"status": strings.ToUpper(matches[2]),
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (Once per turn) ---
-	if matches := attachEnergyOncePerTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
+	amount, err := strconv.Atoi(matches[1])
+	energyType := matches[2]
+	if err == nil {
 		return []core.Effect{{
 			Type:        core.EffectAttachEnergy,
 			Target:      core.TargetSelf,
-			Amount:      1,
+			Amount:      amount,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"trigger":    "ONCE_PER_TURN",
 				"source":     "EnergyZone",
-				"energyType": matches[1],
+				"energyType": energyType,
 			},
 		}}
 	}
-
-	// --- SEARCH DECK (Generic Pokémon) ---
-	if searchDeckRandomPokemonRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectSearchDeck,
-			Target:      core.TargetDeck,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"pokemonType": "ANY",
-				"random":      true,
-				"destination": "hand",
-			},
-		}}
+	return nil
+}
+func parsePassiveCostReductionInPlay(matches []string, text string) []core.Effect {
+	if len(matches) < 4 {
+		return nil
 	}
-
-	// --- CONDITIONAL DAMAGE (Self has damage) ---
-	if matches := conditionalDamageSelfHasDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "SELF_HAS_DAMAGE",
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Attack history) ---
-	if matches := conditionalDamageOnAttackHistoryRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":     "ATTACK_USED_LAST_TURN",
-					"attack_name": matches[1],
-				},
-			}}
-		}
-	}
-
-	// --- DISCARD ENERGY (Until tails) ---
-	if discardEnergyUntilTailsRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"scale_by": "COIN_FLIP_HEADS_UNTIL_TAILS",
-				"random":   true,
-			},
-		}}
-	}
-
-	// --- DELAYED DAMAGE ---
-	if matches := delayedDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDelayedDamage,
-				Target:      core.TargetOpponentActive,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "END_OF_OPPONENT_NEXT_TURN",
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Reactive Damage on KO) ---
-	if matches := passiveReactiveDamageOnKORegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":   "REACTIVE_DAMAGE_ON_KO",
-					"amount":   amount,
-					"location": "ACTIVE",
-				},
-			}}
-		}
-	}
-
-	// --- APPLY RESTRICTION (Opponent's hand) ---
-	if matches := restrictOpponentHandNextTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetOpponentActive, // Effect is on the opponent player
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction": "CANT_PLAY_CARD_TYPE",
-				"card_type":   matches[1],
-				"duration":    "opponent_next_turn",
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Zero Retreat for Active) ---
-	if passiveZeroRetreatForActiveRegex.MatchString(text) {
+	// Handles "Arceus or Arceus ex"
+	names := strings.Split(matches[1], " or ")
+	amount, err1 := strconv.Atoi(matches[2])
+	energyType := matches[3]
+	if err1 == nil {
 		return []core.Effect{{
 			Type:        core.EffectPassiveAbility,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"effect": "ZERO_RETREAT_COST",
-				"target": "ACTIVE",
+				"effect":           "REDUCE_ATTACK_COST",
+				"requires_in_play": names,
+				"amount":           amount,
+				"energyType":       energyType,
 			},
 		}}
 	}
-
-	// --- SCALING DAMAGE (Attack history count) ---
-	if matches := scalingDamageAttackHistoryRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":    "ATTACK_USAGE_COUNT",
-					"attack_name": matches[2],
-				},
-			}}
-		}
+	return nil
+}
+func parseConditionalDamageOpponentAbility(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- DISCARD DECK (Both Players) ---
-	if matches := discardDeckBothPlayersRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDiscardDeck,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"target": "BOTH_PLAYERS",
-				},
-			}}
-		}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- PASSIVE ABILITY (Damage Reduction on Coin Flip) ---
-	if matches := passiveDamageReductionOnCoinFlipRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":       "REDUCE_INCOMING_DAMAGE",
-					"amount":       amount,
-					"on_coin_flip": "HEADS",
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "OPPONENT_HAS_ABILITY",
+		}},
 	}
-
-	// --- MOVE ENERGY (Benched to Active) ---
-	if matches := moveEnergyBenchedToActiveRegex.FindStringSubmatch(text); len(matches) > 2 {
+}
+func parseScalingSnipeOpponentEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingSnipeDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "TARGET_ATTACHED_ENERGY",
+		}},
+	}
+}
+func parseSnipeOncePerTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectSnipeDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ONCE_PER_TURN",
+		}},
+	}
+}
+func parseScalingDamageBenchedName(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	name := matches[2]
+	if err == nil {
 		return []core.Effect{{
-			Type:        core.EffectMoveEnergy,
-			Target:      core.TargetBenchedFriendly, // Source
+			Type:        core.EffectScalingDamage,
+			Amount:      amount,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"trigger":     "ONCE_PER_TURN",
-				"amount":      "ALL",
-				"energyType":  matches[1],
-				"source_type": matches[2],
-				"destination": "ACTIVE",
+				"scale_by":      "BENCHED_POKEMON_NAME",
+				"scale_by_name": name,
 			},
 		}}
 	}
-
-	// --- APPLY RESTRICTION (Opponent cannot play Item) ---
-	if restrictOpponentHandItemRegex.MatchString(text) {
+	return nil
+}
+func parseDamageBenchedOpponentAll(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDamageBenchedOpponentAll,
+		Target:      core.TargetBenchedOpponentAll,
+		Amount:      amount,
+		Description: text},
+	}
+}
+func parseLifesteal(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectLifesteal,
+		Target:      core.TargetSelf,
+		Description: text,
+	}}
+}
+func parsePassiveEnergyValue(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":       "ENERGY_VALUE_DOUBLED",
+			"energy_type":  matches[1],
+			"pokemon_type": matches[2],
+		},
+	}}
+}
+func parseScalingDamageMultiCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	flips, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
+	}
+	amount, err2 := strconv.Atoi(matches[2])
+	if err2 != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":  "COIN_FLIP_HEADS",
+			"num_flips": flips,
+		}},
+	}
+}
+func parseConditionalDamageSwitchIn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "SWITCHED_IN_THIS_TURN",
+		}},
+	}
+}
+func parseConditionalDamageCoinFlipScaling(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "COIN_FLIP_HEADS",
+		}},
+	}
+}
+func parsePassiveImmunity(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "IMMUNE_TO_SPECIAL_CONDITIONS",
+		},
+	}}
+}
+func parseScalingDamageBenchedCount(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "BENCHED_POKEMON_COUNT",
+		}},
+	}
+}
+func parseReactiveDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectApplyReactiveDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"duration": "opponent_next_turn",
+		}},
+	}
+}
+func parseAttachEnergyToActiveTyped(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":         "ONCE_PER_TURN",
+			"source":          "EnergyZone",
+			"energyType":      matches[1],
+			"target_location": "ACTIVE",
+			"target_type":     matches[2],
+		},
+	}}
+}
+func parseBuffNextTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectBuffNextTurn,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"attack_name": matches[1],
+		}},
+	}
+}
+func parseAttachEnergyToBenched(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetBenchedFriendly,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"source":     "EnergyZone",
+			"energyType": matches[1],
+		},
+	}}
+}
+func parseScalingDamageBenchedType(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":      "BENCHED_POKEMON_TYPE",
+			"scale_by_type": "EVOLUTION",
+		}},
+	}
+}
+func parsePassiveRestriction(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":    "RESTRICT_OPPONENT_PLAY",
+			"card_type": matches[1],
+			"location":  "ACTIVE",
+		},
+	}}
+}
+func parseModifyEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	typesStr := strings.ReplaceAll(matches[1], "{", "")
+	types := strings.Split(typesStr, "}, ")
+	types[len(types)-1] = strings.TrimSuffix(types[len(types)-1], "}")
+	return []core.Effect{{
+		Type:        core.EffectModifyEnergy,
+		Target:      core.TargetOpponentActive,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"random_energy":  true,
+			"random_type":    true,
+			"possible_types": types,
+		},
+	}}
+}
+func parseTriggeredDamageOnEnergyAttach(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveDamage,
+		Target:      core.TargetOpponentActive,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ATTACH_ENERGY_TO_SELF",
+			"energy_type": matches[1],
+		}},
+	}
+}
+func parseSwitchSelfTyped(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectSwitchSelf,
+		Target:      core.TargetBenchedFriendly,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_type": matches[1],
+		},
+	}}
+}
+func parseConditionalDamageOpponentProperty(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":  "OPPONENT_HAS_PROPERTY",
+			"property": strings.ToUpper(matches[1]),
+		}},
+	}
+}
+func parseConditionalDamageOnKO(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "FRIENDLY_KO_LAST_TURN",
+		}},
+	}
+}
+func parseSplashDamageBenchedFriendlyAll(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDamageBenchedFriendly,
+		Target:      core.TargetBenchedFriendly,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_all": true,
+		}},
+	}
+}
+func parseScalingDamageBenchedNames(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	// Handles "Wishiwashi and Wishiwashi ex"
+	names := strings.Split(matches[2], " and ")
+	if err == nil {
 		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
+			Type:        core.EffectScalingDamage,
+			Amount:      amount,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"restriction": "CANT_PLAY_CARD_TYPE",
-				"card_type":   "Item",
-				"duration":    "opponent_next_turn",
+				"scale_by":       "BENCHED_POKEMON_NAMES",
+				"scale_by_names": names,
 			},
 		}}
 	}
-
-	// --- PASSIVE ABILITY (Damage Buff for other Pokémon) ---
-	if matches := passiveDamageBuffEvolvesFromRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":              "BUFF_DAMAGE_OUTPUT",
-					"amount":              amount,
-					"location":            "BENCH",
-					"target_evolves_from": matches[1],
-				},
-			}}
-		}
+	return nil
+}
+func parseDiscardMultipleTypedEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 4 {
+		return nil
 	}
-
-	// --- FORCE SWITCH (Player chooses Benched Basic) ---
-	if forceSwitchBenchedBasicRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectForceSwitch,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":        "ONCE_PER_TURN",
-				"location":       "ACTIVE",
-				"player_chooses": true,
-				"target_pool":    "BENCHED",
-				"target_stage":   "Basic",
-			},
-		}}
+	types := []string{matches[1], matches[2], matches[3]}
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Amount:      3,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"energyTypes": types,
+		},
+	}}
+}
+func parseAttachEnergyToBenchedStage(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- APPLY STATUS (Both Active) ---
-	if matches := applyStatusBothActiveRegex.FindStringSubmatch(text); len(matches) > 1 {
-		status := core.StatusCondition(strings.ToUpper(matches[1]))
-		effectSelf := core.Effect{
-			Type:   core.EffectApplyStatus,
-			Target: core.TargetSelf,
-			Status: status,
-		}
-		effectOpponent := core.Effect{
-			Type:   core.EffectApplyStatus,
-			Target: core.TargetOpponentActive,
-			Status: status,
-		}
-		return []core.Effect{effectSelf, effectOpponent}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetBenchedFriendly,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"source":       "EnergyZone",
+			"energyType":   matches[1],
+			"target_stage": matches[2],
+		},
+	}}
+}
+func parsePassiveDamageBuffInPlay(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- APPLY RESTRICTION (Can't Attack) ---
-	if applyRestrictionCantAttackRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction": "CANT_ATTACK",
-				"duration":    "opponent_next_turn",
-			},
-		}}
+	names := strings.Split(matches[1], " or ")
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
 	}
-
-	// --- PASSIVE ABILITY (Damage Reduction via other Pokémon) ---
-	if matches := passiveDamageReductionInPlayRegex.FindStringSubmatch(text); len(matches) > 2 {
-		names := strings.Split(matches[1], " or ")
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":           "REDUCE_INCOMING_DAMAGE",
-					"amount":           amount,
-					"requires_in_play": names,
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":           "BUFF_DAMAGE_OUTPUT",
+			"amount":           amount,
+			"requires_in_play": names,
+		}},
 	}
-
-	// --- PASSIVE ABILITY (Global Damage Buff by Type) ---
-	if matches := passiveDamageBuffTypedPokemonRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":      "BUFF_DAMAGE_OUTPUT",
-					"amount":      amount,
-					"target_type": matches[1],
-				},
-			}}
-		}
+}
+func parsePassiveDamagePreventionCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":       "PREVENT_INCOMING_DAMAGE",
+			"on_coin_flip": "HEADS",
+		},
+	}}
+}
+func parseHealAtEndOfTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- DRAW (With Discard Cost) ---
-	if drawWithDiscardCostRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDraw,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":           "ONCE_PER_TURN",
-				"cost_discard_hand": 1,
-			},
-		}}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- KNOCKOUT (On Coin Flip) ---
-	if knockoutOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectKnockout,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "DOUBLE_HEADS",
-			},
-		}}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":  "END_OF_TURN",
+			"location": "ACTIVE",
+		}},
 	}
-
-	// --- PASSIVE ABILITY (Restrict Evolution) ---
-	if passiveRestrictionEvolveRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect": "RESTRICT_OPPONENT_EVOLVE",
-				"target": "ACTIVE",
-			},
-		}}
+}
+func parsePassiveRetreatCostEnergy(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":  "ZERO_RETREAT_COST",
+			"trigger": "HAS_ENERGY_ATTACHED",
+		},
+	}}
+}
+func parseDamageAllOpponent(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- SCALING DAMAGE (Benched count, base damage) ---
-	if matches := scalingDamageBenchedBaseRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"is_base_damage": true, // Differentiates from bonus damage
-					"scale_by":       "BENCHED_POKEMON_COUNT",
-				},
-			}}
-		}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- SCALING DAMAGE (All Opponent's Energy) ---
-	if matches := scalingDamageAllOpponentEnergyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"is_base_damage": true,
-					"scale_by":       "ALL_OPPONENT_POKEMON_ENERGY",
-				},
-			}}
-		}
+	return []core.Effect{{
+		Type:        core.EffectDamageAllOpponent,
+		Amount:      amount,
+		Description: text},
 	}
-
-	// --- PASSIVE ABILITY (Move Energy on KO) ---
-	if matches := moveEnergyOnKORegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":      "MOVE_ENERGY_ON_KO",
-				"energy_type": matches[1],
-				"source":      "SELF",
-				"destination": "BENCHED",
-			},
-		}}
+}
+func parsePassiveRetreatCostReductionBench(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- RECOIL DAMAGE (On KO) ---
-	if matches := recoilDamageOnKORegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectRecoilDamage,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_KO",
-				},
-			}}
-		}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
 	}
-
-	// --- REVEAL HAND ---
-	if revealHandRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectRevealHand,
-			Target:      core.TargetOpponentHand,
-			Description: text,
-		}}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":       "REDUCE_RETREAT_COST",
+			"location":     "BENCH",
+			"target":       "ACTIVE",
+			"target_stage": matches[1],
+			"amount":       amount,
+		}},
 	}
-
-	// --- MOVE DAMAGE ---
-	if moveDamageRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectMoveDamage,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":     "AS_OFTEN_AS_YOU_LIKE",
-				"amount":      "ALL",
-				"source":      "ANY_FRIENDLY_DAMAGED",
-				"destination": "SELF",
-			},
-		}}
+}
+func parseDamageBenchedConditionalEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- DISCARD TOOL ---
-	if discardAllToolsRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardTool,
-			Target:      core.TargetOpponentActive,
-			Amount:      99, // Represents "all"
-			Description: text,
-		}}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- PASSIVE ABILITY (Prevention from Pokémon ex) ---
-	if passivePreventionFromEXRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":            "PREVENT_INCOMING_DAMAGE",
-				"from_pokemon_type": "EX",
-			},
-		}}
+	return []core.Effect{{
+		Type:        core.EffectDamageBenchedOpponentAll,
+		Target:      core.TargetBenchedOpponentAll,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_condition": "HAS_ENERGY_ATTACHED",
+		}},
 	}
-
-	// --- DISCARD ENERGY (Random Self, Multiple) ---
-	if matches := discardRandomEnergySelfMultipleRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDiscardEnergy,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"random": true,
-				},
-			}}
-		}
+}
+func parseScalingDamagePerEnergyCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
 	}
-
-	// --- SPLASH DAMAGE (Any Friendly) ---
-	if matches := splashDamageAnyFriendlyRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDamageBenchedFriendly, // Re-using this type, but target pool is wider
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"target_pool": "ANY_FRIENDLY",
-				},
-			}}
-		}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
 	}
-
-	// --- APPLY RESTRICTION (Conditional on Stage) ---
-	if matches := conditionalRestrictionOnStageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction":     "CANT_ATTACK",
-				"duration":        "opponent_next_turn",
-				"target_if_stage": strings.ToUpper(matches[1]),
-			},
-		}}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":            "COIN_FLIP_HEADS",
+			"num_flips_scales_by": "SELF_ATTACHED_ENERGY",
+		}},
 	}
-
-	// --- ATTACH ENERGY (Scaled by coin flips) ---
-	if matches := attachEnergyScaledByCoinFlipsRegex.FindStringSubmatch(text); len(matches) > 3 {
-		flips, err1 := strconv.Atoi(matches[1])
-		if err1 == nil {
-			return []core.Effect{{
-				Type:        core.EffectAttachEnergy,
-				Target:      core.TargetBenchedFriendly,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"source":            "EnergyZone",
-					"energyType":        matches[2],
-					"target_type":       matches[3],
-					"scale_by":          "COIN_FLIP_HEADS",
-					"num_flips":         flips,
-					"distribute_freely": true,
-				},
-			}}
-		}
+}
+func parseAlternateAttackCost(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- ATTACH ENERGY (Multiple Specific Types) ---
-	if matches := attachMultipleSpecificEnergyRegex.FindStringSubmatch(text); len(matches) > 3 {
-		types := []string{matches[1], matches[2], matches[3]}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":      "ALTERNATE_ATTACK_COST",
+			"trigger":     "SELF_HAS_DAMAGE",
+			"cost_amount": amount,
+			"cost_type":   matches[2],
+		}},
+	}
+}
+func parseDiscardAllTypedEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"amount":     "ALL",
+			"energyType": matches[1],
+		},
+	}}
+}
+func parseConditionalDamageOpponentStatus(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "OPPONENT_HAS_STATUS",
+			"status":  strings.ToUpper(matches[1]),
+		}},
+	}
+}
+func parsePreventAllDamageSimple(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyPrevention,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+			"duration":     "opponent_next_turn",
+			"prevent":      "ALL_DAMAGE",
+		},
+	}}
+}
+func parseScalingDamageBenchedTypeCount(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":      "BENCHED_POKEMON_TYPE_COUNT",
+			"scale_by_type": matches[2],
+		}},
+	}
+}
+func parsePassiveDamageReductionSimple(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "REDUCE_INCOMING_DAMAGE",
+			"amount": amount,
+		}},
+	}
+}
+func parseConditionalDamageNoDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "SELF_HAS_NO_DAMAGE",
+		}},
+	}
+}
+func parsePassiveRetreatCostForOther(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":          "ZERO_RETREAT_COST",
+			"target_name":     matches[1],
+			"target_location": "ACTIVE",
+		},
+	}}
+}
+func parseRecoilDamageOnCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectRecoilDamage,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "TAILS",
+		}},
+	}
+}
+func parsePassiveImmunitySingleStatus(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "IMMUNE_TO_STATUS",
+			"status": strings.ToUpper(matches[1]),
+		},
+	}}
+}
+func parseDiscardDeck(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardDeck,
+		Target:      core.TargetOpponentActive, // Implied target is opponent
+		Amount:      1,
+		Description: text,
+	}}
+}
+func parseSplashDamageSingleBenchedOpponent(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectSnipeDamage,
+		Target:      core.TargetBenchedOpponent,
+		Amount:      amount,
+		Description: text},
+	}
+}
+func parseScalingDamageAllBenched(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "ALL_BENCHED_POKEMON_COUNT",
+		}},
+	}
+}
+func parseMultiHitRandomGlobal(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	hits, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
+	}
+	damage, err2 := strconv.Atoi(matches[2])
+	if err2 != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectMultiHitRandomDamage,
+		Amount:      damage,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"hits":        hits,
+			"target_pool": "GLOBAL_OTHER",
+		}},
+	}
+}
+func parsePassiveSpecialConditionImmunityTypedEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":      "IMMUNE_TO_SPECIAL_CONDITIONS",
+			"target":      "ALL_FRIENDLY",
+			"trigger":     "HAS_ENERGY_ATTACHED",
+			"energy_type": matches[1],
+		},
+	}}
+}
+func parseHealAllFriendlyTyped(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ONCE_PER_TURN",
+			"target_all":  true,
+			"target_type": matches[2],
+		}},
+	}
+}
+func parseScalingDamagePerTypedEnergyCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":            "COIN_FLIP_HEADS",
+			"num_flips_scales_by": "SELF_ATTACHED_ENERGY_TYPED",
+			"energy_type":         matches[1],
+		}},
+	}
+}
+func parseHealBenched(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Target:      core.TargetBenchedFriendly,
+		Amount:      amount,
+		Description: text},
+	}
+}
+func parseConditionalDamageDifferentEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	count, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
+	}
+	amount, err2 := strconv.Atoi(matches[2])
+	if err2 != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":        "DIFFERENT_ENERGY_TYPES_ATTACHED",
+			"required_count": count,
+		}},
+	}
+}
+func parseDamageEqualsSelfDamage(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDamage, // This is a direct damage effect, not a bonus
+		Description: text,
+		Conditions: map[string]interface{}{
+			"amount_equals": "SELF_DAMAGE_COUNTERS",
+		},
+	}}
+}
+func parseSetHPOnCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	hp, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectSetHP,
+		Target:      core.TargetOpponentActive,
+		Amount:      hp,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+		}},
+	}
+}
+func parseShuffleFromHandMultiCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	flips, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectShuffleFromHand,
+		Target:      core.TargetOpponentHand,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":  "COIN_FLIP_HEADS",
+			"num_flips": flips,
+			"random":    true,
+		}},
+	}
+}
+func parsePassiveReactiveDamageActive(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":   "REACTIVE_DAMAGE",
+			"amount":   amount,
+			"location": "ACTIVE",
+		}},
+	}
+}
+func parseShuffleFromHandReveal(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectShuffleFromHand,
+		Target:      core.TargetOpponentHand,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"reveal_hand":    true,
+			"player_chooses": true,
+		},
+	}}
+}
+func parseRestrictionCantUseAttack(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "CANT_USE_ATTACK",
+			"attack_name": matches[1],
+			"duration":    "next_turn",
+		},
+	}}
+}
+func parseScalingDamageUntilTails(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "COIN_FLIP_HEADS_UNTIL_TAILS",
+		}},
+	}
+}
+func parseForceSwitchDamaged(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectForceSwitch,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":          "ONCE_PER_TURN",
+			"location":         "ACTIVE",
+			"target_condition": "HAS_DAMAGE",
+		},
+	}}
+}
+func parseConditionalDamageDoubleHeads(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "DOUBLE_HEADS",
+		}},
+	}
+}
+func parseScalingDamagePerPokemonInPlay(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":            "COIN_FLIP_HEADS",
+			"num_flips_scales_by": "ALL_POKEMON_IN_PLAY",
+		}},
+	}
+}
+func parseModifyNextEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	typesStr := strings.ReplaceAll(matches[1], "{", "")
+	types := strings.Split(typesStr, "}, ")
+	types[len(types)-1] = strings.TrimSuffix(types[len(types)-1], "}")
+	return []core.Effect{{
+		Type:        core.EffectModifyEnergy,
+		Target:      core.TargetOpponentActive, // Implied target is opponent
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_energy":  "NEXT_GENERATED",
+			"random_type":    true,
+			"possible_types": types,
+		},
+	}}
+}
+func parsePassiveOpponentDamageReduction(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":   "REDUCE_OPPONENT_DAMAGE_OUTPUT",
+			"amount":   amount,
+			"location": "ACTIVE",
+		}},
+	}
+}
+func parseConditionalDamageIfDamagedLastTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "DAMAGED_LAST_TURN",
+		}},
+	}
+}
+func parseLookAtTopCard(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectLookAtDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ONCE_PER_TURN",
+		},
+	}}
+}
+func parsePassiveBuffStatusDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "BUFF_STATUS_DAMAGE",
+			"amount": amount,
+			"status": strings.ToUpper(matches[2]),
+		}},
+	}
+}
+func parseAttachEnergyOncePerTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetSelf,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":    "ONCE_PER_TURN",
+			"source":     "EnergyZone",
+			"energyType": matches[1],
+		},
+	}}
+}
+func parseSearchDeckRandomPokemon(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectSearchDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"pokemonType": "ANY",
+			"random":      true,
+			"destination": "hand",
+		},
+	}}
+}
+func parseConditionalDamageSelfHasDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "SELF_HAS_DAMAGE",
+		}},
+	}
+}
+func parseConditionalDamageOnAttackHistory(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ATTACK_USED_LAST_TURN",
+			"attack_name": matches[1],
+		}},
+	}
+}
+func parseDiscardEnergyUntilTails(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "COIN_FLIP_HEADS_UNTIL_TAILS",
+			"random":   true,
+		},
+	}}
+}
+func parseDelayedDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDelayedDamage,
+		Target:      core.TargetOpponentActive,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "END_OF_OPPONENT_NEXT_TURN",
+		}},
+	}
+}
+func parsePassiveReactiveDamageOnKO(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":   "REACTIVE_DAMAGE_ON_KO",
+			"amount":   amount,
+			"location": "ACTIVE",
+		}},
+	}
+}
+func parseRestrictOpponentHandNextTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive, // Effect is on the opponent player
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "CANT_PLAY_CARD_TYPE",
+			"card_type":   matches[1],
+			"duration":    "opponent_next_turn",
+		},
+	}}
+}
+func parsePassiveZeroRetreatForActive(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "ZERO_RETREAT_COST",
+			"target": "ACTIVE",
+		},
+	}}
+}
+func parseScalingDamageAttackHistory(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":    "ATTACK_USAGE_COUNT",
+			"attack_name": matches[2],
+		}},
+	}
+}
+func parseDiscardDeckBothPlayers(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardDeck,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target": "BOTH_PLAYERS",
+		}},
+	}
+}
+func parsePassiveDamageReductionOnCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":       "REDUCE_INCOMING_DAMAGE",
+			"amount":       amount,
+			"on_coin_flip": "HEADS",
+		}},
+	}
+}
+func parseMoveEnergyBenchedToActive(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectMoveEnergy,
+		Target:      core.TargetBenchedFriendly, // Source
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ONCE_PER_TURN",
+			"amount":      "ALL",
+			"energyType":  matches[1],
+			"source_type": matches[2],
+			"destination": "ACTIVE",
+		},
+	}}
+}
+func parseRestrictOpponentHandItem(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "CANT_PLAY_CARD_TYPE",
+			"card_type":   "Item",
+			"duration":    "opponent_next_turn",
+		},
+	}}
+}
+func parsePassiveDamageBuffEvolvesFrom(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":              "BUFF_DAMAGE_OUTPUT",
+			"amount":              amount,
+			"location":            "BENCH",
+			"target_evolves_from": matches[1],
+		}},
+	}
+}
+func parseForceSwitchBenchedBasic(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectForceSwitch,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":        "ONCE_PER_TURN",
+			"location":       "ACTIVE",
+			"player_chooses": true,
+			"target_pool":    "BENCHED",
+			"target_stage":   "Basic",
+		},
+	}}
+}
+func parseApplyStatusBothActive(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	status := core.StatusCondition(strings.ToUpper(matches[1]))
+	effectSelf := core.Effect{
+		Type:   core.EffectApplyStatus,
+		Target: core.TargetSelf,
+		Status: status,
+	}
+	effectOpponent := core.Effect{
+		Type:   core.EffectApplyStatus,
+		Target: core.TargetOpponentActive,
+		Status: status,
+	}
+	return []core.Effect{effectSelf, effectOpponent}
+}
+func parseApplyRestrictionCantAttack(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "CANT_ATTACK",
+			"duration":    "opponent_next_turn",
+		},
+	}}
+}
+func parsePassiveDamageReductionInPlay(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	names := strings.Split(matches[1], " or ")
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":           "REDUCE_INCOMING_DAMAGE",
+			"amount":           amount,
+			"requires_in_play": names,
+		}},
+	}
+}
+func parsePassiveDamageBuffTypedPokemon(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":      "BUFF_DAMAGE_OUTPUT",
+			"amount":      amount,
+			"target_type": matches[1],
+		}},
+	}
+}
+func parseDrawWithDiscardCost(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDraw,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":           "ONCE_PER_TURN",
+			"cost_discard_hand": 1,
+		},
+	}}
+}
+func parseKnockoutOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectKnockout,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "DOUBLE_HEADS",
+		},
+	}}
+}
+func parsePassiveRestrictionEvolve(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "RESTRICT_OPPONENT_EVOLVE",
+			"target": "ACTIVE",
+		},
+	}}
+}
+func parseScalingDamageBenchedBase(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"is_base_damage": true, // Differentiates from bonus damage
+			"scale_by":       "BENCHED_POKEMON_COUNT",
+		}},
+	}
+}
+func parseScalingDamageAllOpponentEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"is_base_damage": true,
+			"scale_by":       "ALL_OPPONENT_POKEMON_ENERGY",
+		}},
+	}
+}
+func parseMoveEnergyOnKO(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":      "MOVE_ENERGY_ON_KO",
+			"energy_type": matches[1],
+			"source":      "SELF",
+			"destination": "BENCHED",
+		},
+	}}
+}
+func parseRecoilDamageOnKO(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectRecoilDamage,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "OPPONENT_KO",
+		}},
+	}
+}
+func parseRevealHand(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectRevealHand,
+		Target:      core.TargetOpponentHand,
+		Description: text,
+	}}
+}
+func parseMoveDamage(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectMoveDamage,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "AS_OFTEN_AS_YOU_LIKE",
+			"amount":      "ALL",
+			"source":      "ANY_FRIENDLY_DAMAGED",
+			"destination": "SELF",
+		},
+	}}
+}
+func parseDiscardAllTools(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardTool,
+		Target:      core.TargetOpponentActive,
+		Amount:      99, // Represents "all"
+		Description: text,
+	}}
+}
+func parsePassivePreventionFromEX(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":            "PREVENT_INCOMING_DAMAGE",
+			"from_pokemon_type": "EX",
+		},
+	}}
+}
+func parseDiscardRandomEnergySelfMultiple(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"random": true,
+		}},
+	}
+}
+func parseSplashDamageAnyFriendly(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDamageBenchedFriendly, // Re-using this type, but target pool is wider
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_pool": "ANY_FRIENDLY",
+		}},
+	}
+}
+func parseConditionalRestrictionOnStage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction":     "CANT_ATTACK",
+			"duration":        "opponent_next_turn",
+			"target_if_stage": strings.ToUpper(matches[1]),
+		},
+	}}
+}
+func parseAttachEnergyScaledByCoinFlips(matches []string, text string) []core.Effect {
+	if len(matches) < 4 {
+		return nil
+	}
+	flips, err1 := strconv.Atoi(matches[1])
+	if err1 == nil {
 		return []core.Effect{{
 			Type:        core.EffectAttachEnergy,
 			Target:      core.TargetBenchedFriendly,
 			Description: text,
 			Conditions: map[string]interface{}{
 				"source":            "EnergyZone",
-				"energyTypes":       types,
-				"target_stage":      "Basic",
+				"energyType":        matches[2],
+				"target_type":       matches[3],
+				"scale_by":          "COIN_FLIP_HEADS",
+				"num_flips":         flips,
 				"distribute_freely": true,
 			},
 		}}
 	}
-
-	// --- CONDITIONAL DAMAGE (Opponent has Special Condition) ---
-	if matches := conditionalDamageOpponentHasStatusRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_HAS_SPECIAL_CONDITION",
-				},
-			}}
-		}
+	return nil
+}
+func parseAttachMultipleSpecificEnergy(matches []string, text string) []core.Effect {
+	if len(matches) < 4 {
+		return nil
 	}
-
-	// --- APPLY RESTRICTION (Attack may fail) ---
-	if applyAttackFailureChanceRegex.MatchString(text) {
+	types := []string{matches[1], matches[2], matches[3]}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetBenchedFriendly,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"source":            "EnergyZone",
+			"energyTypes":       types,
+			"target_stage":      "Basic",
+			"distribute_freely": true,
+		},
+	}}
+}
+func parseConditionalDamageOpponentHasStatus(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "OPPONENT_HAS_SPECIAL_CONDITION",
+		}},
+	}
+}
+func parseApplyAttackFailureChance(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "ATTACK_MAY_FAIL",
+			"chance":      0.5,
+			"on":          "TAILS",
+			"duration":    "opponent_next_turn",
+		},
+	}}
+}
+func parseDiscardFromHandOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardFromHand,
+		Target:      core.TargetOpponentHand,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+			"random":       true,
+		},
+	}}
+}
+func parseMoveEnergyAsOftenAsYouLike(matches []string, text string) []core.Effect {
+	if len(matches) < 4 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectMoveEnergy,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":          "AS_OFTEN_AS_YOU_LIKE",
+			"amount":           1,
+			"energyType":       matches[1],
+			"source_type":      matches[2],
+			"destination_type": matches[3],
+			"source":           "BENCHED",
+			"destination":      "ACTIVE",
+		},
+	}}
+}
+func parseConditionalRestrictionOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction":  "CANT_ATTACK",
+			"duration":     "opponent_next_turn",
+			"on_coin_flip": "HEADS",
+		},
+	}}
+}
+func parseSwitchSelfSubtype(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectSwitchSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":        "ONCE_PER_TURN",
+			"source_subtype": matches[1],
+			"target_subtype": matches[2],
+		},
+	}}
+}
+func parseAttachEnergyFromDiscardWithRecoil(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	attachEffect := core.Effect{
+		Type:        core.EffectAttachEnergy,
+		Description: "Attach energy from discard.",
+		Conditions: map[string]interface{}{
+			"trigger":    "ONCE_PER_TURN",
+			"source":     "DISCARD_PILE",
+			"energyType": matches[1],
+		}}
+	recoilEffect := core.Effect{
+		Type:        core.EffectRecoilDamage,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: "Take recoil damage.",
+	}
+	return []core.Effect{attachEffect, recoilEffect}
+}
+func parsePassiveEvolveToAny(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "CAN_EVOLVE_INTO_ANY",
+		},
+	}}
+}
+func parsePassiveCostReductionWithTool(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":     "REDUCE_ATTACK_COST",
+			"trigger":    "SELF_HAS_TOOL",
+			"amount":     amount,
+			"energyType": matches[2],
+		}},
+	}
+}
+func parseCopyAttackWithEnergyCheck(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectCopyAttack,
+		Target:      core.TargetOpponentActive, // Text implies any opponent's Pokémon
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_pool":     "ANY_OPPONENT",
+			"requires_energy": true,
+		},
+	}}
+}
+func parsePassiveIncreaseOpponentCost(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":     "INCREASE_OPPONENT_ATTACK_COST",
+			"location":   "ACTIVE",
+			"amount":     amount,
+			"energyType": matches[2],
+		}},
+	}
+}
+func parseAttachEnergyToTypedBenched(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetBenchedFriendly,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"source":      "EnergyZone",
+			"energyType":  matches[1],
+			"target_type": matches[2],
+		},
+	}}
+}
+func parseConditionalDamageOpponentStage(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":        "OPPONENT_IS_STAGE",
+			"opponent_stage": strings.ToUpper(matches[1]),
+		}},
+	}
+}
+func parseLookAtEitherPlayerDeck(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectLookAtDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":       "ONCE_PER_TURN",
+			"target_player": "EITHER",
+		},
+	}}
+}
+func parsePersistentAttackFailure(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "ATTACK_MAY_FAIL",
+			"chance":      0.5,
+			"on":          "TAILS",
+			"duration":    "PERSISTENT",
+		},
+	}}
+}
+func parseHealOnCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+		}},
+	}
+}
+func parseDiscardOwnDeckAmount(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardDeck,
+		Target:      core.TargetDeck,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_player": "SELF",
+		}},
+	}
+}
+func parseDiscardDeckWithConditionalDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	discardEffect := core.Effect{
+		Type:        core.EffectDiscardDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: "Discard top card of your deck.",
+		Conditions: map[string]interface{}{
+			"target_player": "SELF",
+		}}
+	damageEffect := core.Effect{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: "Do more damage if discarded card is a Pokémon of a certain type.",
+		Conditions: map[string]interface{}{
+			"trigger":        "DISCARDED_CARD_IS_TYPE",
+			"discarded_type": matches[1],
+		},
+	}
+	return []core.Effect{discardEffect, damageEffect}
+}
+func parseConditionalDamageOnBenchedName(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":      "POKEMON_ON_BENCH",
+			"pokemon_name": matches[1],
+		}},
+	}
+}
+func parseDamageHalveHPRoundedDown(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDamageHalveHP,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+	}}
+}
+func parsePassiveGlobalDamageReductionUnown(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":           "REDUCE_INCOMING_DAMAGE",
+			"target":           "ALL_FRIENDLY",
+			"amount":           amount,
+			"requires_in_play": []string{"Unown"}, // Special condition for this ability,
+		}},
+	}
+}
+func parseApplyRandomStatus(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	// "Asleep, Burned, Confused, Paralyzed, and Poisoned"
+	statusListStr := strings.ReplaceAll(matches[1], ", and ", ", ")
+	possibleStatuses := strings.Split(statusListStr, ", ")
+	return []core.Effect{{
+		Type:        core.EffectApplyStatus,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"random":            true,
+			"possible_statuses": possibleStatuses,
+		},
+	}}
+}
+func parseScalingDamageDiscardTool(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	maxDiscard, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
+	}
+	damagePer, err2 := strconv.Atoi(matches[2])
+	if err2 != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      damagePer,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":    "DISCARD_TOOL_FROM_HAND",
+			"max_discard": maxDiscard,
+		}},
+	}
+}
+func parseSearchDeckTool(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectSearchDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ONCE_PER_TURN",
+			"card_type":   "Pokémon Tool",
+			"random":      true,
+			"destination": "hand",
+		},
+	}}
+}
+func parseAttachEnergyAtEndOfFirstTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Target:      core.TargetSelf,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":    "END_OF_FIRST_TURN",
+			"source":     "EnergyZone",
+			"energyType": matches[1],
+		},
+	}}
+}
+func parseEvolveOnEnergyAttach(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":  "EVOLVE",
+			"trigger": "ATTACH_ENERGY_TO_SELF",
+			"source":  "DECK",
+			"random":  true,
+		},
+	}}
+}
+func parseHealActiveOncePerTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Target:      core.TargetSelf, // Target is Active, which is self in this context
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ONCE_PER_TURN",
+		}},
+	}
+}
+func parseAttachEnergyToAnyTypedFriendly(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ONCE_PER_TURN",
+			"location":    "ACTIVE",
+			"source":      "EnergyZone",
+			"energyType":  matches[1],
+			"target_type": matches[2],
+			"target_pool": "ANY_FRIENDLY",
+		},
+	}}
+}
+func parsePassiveZeroRetreatInPlay(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	names := strings.Split(matches[1], " or ")
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":           "ZERO_RETREAT_COST",
+			"requires_in_play": names,
+		},
+	}}
+}
+func parseScalingDamageSelfEnergyAllTypes(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "SELF_ATTACHED_ENERGY",
+		}},
+	}
+}
+func parseReturnToHandOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectReturnToHand,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+		},
+	}}
+}
+func parseDiscardBenchedForScalingDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardBenched,
+		Target:      core.TargetBenchedFriendly, // Player chooses which/how many
+		Description: "You may discard any number of your Benched {W} Pokémon.",
+		Conditions: map[string]interface{}{
+			"target_type": matches[1],
+		}},
+		{
+			Type:        core.EffectScalingDamage,
+			Amount:      amount,
+			Description: "This attack does 40 more damage for each Benched Pokémon you discarded in this way.",
+			Conditions: map[string]interface{}{
+				"scale_by": "DISCARDED_BENCHED_COUNT",
+			},
+		}}
+}
+func parsePassiveGlobalHealBlock(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "PREVENT_HEALING",
+			"target": "GLOBAL",
+		},
+	}}
+}
+func parseDevolveOnCondition(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDevolve,
+		Target:      core.TargetOpponentActive,
+		Amount:      1, // Highest stage = 1 level
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "OPPONENT_IS_EVOLVED",
+			"destination": "HAND",
+		},
+	}}
+}
+func parseShuffleHandAndDrawScaled(matches []string, text string) []core.Effect {
+	shuffleEffect := core.Effect{
+		Type:        core.EffectShuffleFromHand,
+		Target:      core.TargetSelf, // Shuffle own hand
+		Description: "Shuffle your hand into your deck.",
+		Conditions: map[string]interface{}{
+			"destination": "DECK",
+		},
+	}
+	drawEffect := core.Effect{
+		Type:        core.EffectDraw,
+		Description: "Draw a card for each card in your opponent's hand.",
+		Conditions: map[string]interface{}{
+			"scale_by": "OPPONENT_HAND_SIZE",
+		},
+	}
+	return []core.Effect{shuffleEffect, drawEffect}
+}
+func parseDiscardEnergyBothActive(matches []string, text string) []core.Effect {
+	discardSelf := core.Effect{
+		Type:       core.EffectDiscardEnergy,
+		Target:     core.TargetSelf,
+		Amount:     1,
+		Conditions: map[string]interface{}{"random": true},
+	}
+	discardOpponent := core.Effect{
+		Type:       core.EffectDiscardEnergy,
+		Target:     core.TargetOpponentActive,
+		Amount:     1,
+		Conditions: map[string]interface{}{"random": true},
+	}
+	return []core.Effect{discardSelf, discardOpponent}
+}
+func parseConditionalDamageBenchedDamaged(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ANY_BENCHED_FRIENDLY_HAS_DAMAGE",
+		}},
+	}
+}
+func parseShuffleFromHandOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectShuffleFromHand,
+		Target:      core.TargetOpponentHand,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+			"reveal":       true,
+			"random":       true,
+			"destination":  "DECK",
+		},
+	}}
+}
+func parseDiscardEnergyOpponentOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetOpponentActive,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+			"random":       true,
+		},
+	}}
+}
+func parseDrawUntilMatchHandSize(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDraw,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"draw_until": "MATCH_OPPONENT_HAND_SIZE",
+		},
+	}}
+}
+func parseScalingDamageOpponentBenchedCount(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by": "OPPONENT_BENCHED_POKEMON_COUNT",
+		}},
+	}
+}
+func parseCopyAttackOnCoinFlip(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectCopyAttack,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+		},
+	}}
+}
+func parseSnipeRandomOpponent(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectSnipeDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"target_pool": "ANY_OPPONENT",
+			"random":      true,
+		}},
+	}
+}
+func parsePassiveGlobalDamageBuffUnown(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":           "BUFF_DAMAGE_OUTPUT",
+			"target":           "ALL_FRIENDLY",
+			"amount":           amount,
+			"requires_in_play": []string{"Unown"}, // Special condition,
+		}},
+	}
+}
+func parsePreventionOnKO(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility, // This is a passive trigger
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":   "APPLY_PREVENTION_ON_KO",
+			"prevent":  "ALL_DAMAGE_AND_EFFECTS",
+			"duration": "opponent_next_turn",
+		},
+	}}
+}
+func parseMoveAllEnergyToBenched(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectMoveEnergy,
+		Target:      core.TargetBenchedFriendly,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"amount":      "ALL",
+			"source":      "SELF",
+			"destination": "BENCHED",
+		},
+	}}
+}
+func parseRestrictEnergyAttachment(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "CANT_ATTACH_ENERGY",
+			"target":      "ACTIVE",
+			"duration":    "opponent_next_turn",
+		},
+	}}
+}
+func parseShuffleFromHandSimple(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectShuffleFromHand,
+		Target:      core.TargetOpponentHand,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"reveal":      true,
+			"random":      true,
+			"destination": "DECK",
+		},
+	}}
+}
+func parseVoluntarySwitch(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectSwitchSelf,
+		Target:      core.TargetBenchedFriendly,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"voluntary": true,
+		},
+	}}
+}
+func parseRevealHandOnBenchPlay(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectRevealHand,
+		Target:      core.TargetOpponentHand,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ON_PLAY_TO_BENCH",
+		},
+	}}
+}
+func parseDebuffIncomingDamage(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDebuffIncomingDamage,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"duration": "opponent_next_turn",
+		}},
+	}
+}
+func parseRestrictionOnTails(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction":  "CANT_ATTACK",
+			"on_coin_flip": "TAILS",
+			"duration":     "next_turn",
+		},
+	}}
+}
+func parseConditionalDamageOpponentName(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":       "OPPONENT_IS_NAME",
+			"opponent_name": matches[1],
+		}},
+	}
+}
+func parseAttachEnergyToSpecificPokemon(matches []string, text string) []core.Effect {
+	if len(matches) < 4 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"source":       "EnergyZone",
+			"energyType":   matches[1],
+			"target_names": []string{matches[2], matches[3]},
+		},
+	}}
+}
+func parsePassiveRetreatCostFirstTurn(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":   "ZERO_RETREAT_COST",
+			"duration": "FIRST_TURN",
+		},
+	}}
+}
+func parsePassiveEffectPrevention(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "PREVENT_INCOMING_EFFECTS",
+		},
+	}}
+}
+func parseApplyStatusOncePerTurnAbility(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectApplyStatus,
+		Target:      core.TargetOpponentActive,
+		Status:      core.StatusCondition(strings.ToUpper(matches[1])),
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "ONCE_PER_TURN",
+		},
+	}}
+}
+func parseBuffStacking(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectBuffNextTurn,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"attack_name": matches[1],
+			"stacking":    true,
+			"duration":    "PERSISTENT_ACTIVE",
+		}},
+	}
+}
+func parseConditionalDamageIfEnergyAttached(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "SELF_HAS_TYPED_ENERGY",
+			"energy_type": matches[1],
+		}},
+	}
+}
+func parseHealOnEnergyAttach(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectHeal,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ATTACH_ENERGY_TO_SELF",
+			"energy_type": matches[1],
+		}},
+	}
+}
+func parseKnockoutAttackerOnKO(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect":       "KO_ATTACKER_ON_KO",
+			"on_coin_flip": "HEADS",
+		},
+	}}
+}
+func parseDamageAbilityInPlay(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[2])
+	names := strings.Split(matches[1], " or ")
+	if err == nil {
 		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
+			Type:        core.EffectDamage,
 			Target:      core.TargetOpponentActive,
+			Amount:      amount,
 			Description: text,
 			Conditions: map[string]interface{}{
-				"restriction": "ATTACK_MAY_FAIL",
-				"chance":      0.5,
-				"on":          "TAILS",
-				"duration":    "opponent_next_turn",
-			},
-		}}
-	}
-
-	// --- DISCARD FROM HAND (On Coin Flip) ---
-	if discardFromHandOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardFromHand,
-			Target:      core.TargetOpponentHand,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-				"random":       true,
-			},
-		}}
-	}
-
-	// --- MOVE ENERGY (As often as you like) ---
-	if matches := moveEnergyAsOftenAsYouLikeRegex.FindStringSubmatch(text); len(matches) > 3 {
-		return []core.Effect{{
-			Type:        core.EffectMoveEnergy,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":          "AS_OFTEN_AS_YOU_LIKE",
-				"amount":           1,
-				"energyType":       matches[1],
-				"source_type":      matches[2],
-				"destination_type": matches[3],
-				"source":           "BENCHED",
-				"destination":      "ACTIVE",
-			},
-		}}
-	}
-
-	// --- APPLY RESTRICTION (Can't Attack, on coin flip) ---
-	if conditionalRestrictionOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction":  "CANT_ATTACK",
-				"duration":     "opponent_next_turn",
-				"on_coin_flip": "HEADS",
-			},
-		}}
-	}
-
-	// --- SWITCH SELF (Subtype) ---
-	if matches := switchSelfSubtypeRegex.FindStringSubmatch(text); len(matches) > 2 {
-		return []core.Effect{{
-			Type:        core.EffectSwitchSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":        "ONCE_PER_TURN",
-				"source_subtype": matches[1],
-				"target_subtype": matches[2],
-			},
-		}}
-	}
-
-	// --- ATTACH ENERGY (From Discard with Recoil) ---
-	if matches := attachEnergyFromDiscardWithRecoilRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			attachEffect := core.Effect{
-				Type:        core.EffectAttachEnergy,
-				Description: "Attach energy from discard.",
-				Conditions: map[string]interface{}{
-					"trigger":    "ONCE_PER_TURN",
-					"source":     "DISCARD_PILE",
-					"energyType": matches[1],
-				},
-			}
-			recoilEffect := core.Effect{
-				Type:        core.EffectRecoilDamage,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: "Take recoil damage.",
-			}
-			return []core.Effect{attachEffect, recoilEffect}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Evolve to any) ---
-	if passiveEvolveToAnyRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect": "CAN_EVOLVE_INTO_ANY",
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Cost Reduction with Tool) ---
-	if matches := passiveCostReductionWithToolRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":     "REDUCE_ATTACK_COST",
-					"trigger":    "SELF_HAS_TOOL",
-					"amount":     amount,
-					"energyType": matches[2],
-				},
-			}}
-		}
-	}
-
-	// --- COPY ATTACK (With energy check) ---
-	if copyAttackWithEnergyCheckRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectCopyAttack,
-			Target:      core.TargetOpponentActive, // Text implies any opponent's Pokémon
-			Description: text,
-			Conditions: map[string]interface{}{
-				"target_pool":     "ANY_OPPONENT",
-				"requires_energy": true,
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Increase Opponent Cost) ---
-	if matches := passiveIncreaseOpponentCostRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":     "INCREASE_OPPONENT_ATTACK_COST",
-					"location":   "ACTIVE",
-					"amount":     amount,
-					"energyType": matches[2],
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (To Typed Benched) ---
-	if matches := attachEnergyToTypedBenchedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Target:      core.TargetBenchedFriendly,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"source":      "EnergyZone",
-				"energyType":  matches[1],
-				"target_type": matches[2],
-			},
-		}}
-	}
-
-	// --- CONDITIONAL DAMAGE (Opponent is Stage) ---
-	if matches := conditionalDamageOpponentStageRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":        "OPPONENT_IS_STAGE",
-					"opponent_stage": strings.ToUpper(matches[1]),
-				},
-			}}
-		}
-	}
-
-	// --- LOOK AT DECK (Either player) ---
-	if lookAtEitherPlayerDeckRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectLookAtDeck,
-			Target:      core.TargetDeck,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":       "ONCE_PER_TURN",
-				"target_player": "EITHER",
-			},
-		}}
-	}
-
-	// --- APPLY RESTRICTION (Persistent attack failure) ---
-	if persistentAttackFailureRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction": "ATTACK_MAY_FAIL",
-				"chance":      0.5,
-				"on":          "TAILS",
-				"duration":    "PERSISTENT",
-			},
-		}}
-	}
-
-	// --- HEAL (On Coin Flip) ---
-	if matches := healOnCoinFlipRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"on_coin_flip": "HEADS",
-				},
-			}}
-		}
-	}
-
-	// --- DISCARD DECK (Self) ---
-	if matches := discardOwnDeckAmountRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDiscardDeck,
-				Target:      core.TargetDeck,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"target_player": "SELF",
-				},
-			}}
-		}
-	}
-
-	// --- DISCARD DECK & CONDITIONAL DAMAGE ---
-	if matches := discardDeckWithConditionalDamageRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			discardEffect := core.Effect{
-				Type:        core.EffectDiscardDeck,
-				Target:      core.TargetDeck,
-				Amount:      1,
-				Description: "Discard top card of your deck.",
-				Conditions: map[string]interface{}{
-					"target_player": "SELF",
-				},
-			}
-			damageEffect := core.Effect{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: "Do more damage if discarded card is a Pokémon of a certain type.",
-				Conditions: map[string]interface{}{
-					"trigger":        "DISCARDED_CARD_IS_TYPE",
-					"discarded_type": matches[1],
-				},
-			}
-			return []core.Effect{discardEffect, damageEffect}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Pokémon on Bench by name) ---
-	if matches := conditionalDamageOnBenchedNameRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":      "POKEMON_ON_BENCH",
-					"pokemon_name": matches[1],
-				},
-			}}
-		}
-	}
-
-	// --- DAMAGE (Halve HP) ---
-	if damageHalveHPRoundedDownRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDamageHalveHP,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Global Damage Reduction - Unown) ---
-	if matches := passiveGlobalDamageReductionUnownRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":           "REDUCE_INCOMING_DAMAGE",
-					"target":           "ALL_FRIENDLY",
-					"amount":           amount,
-					"requires_in_play": []string{"Unown"}, // Special condition for this ability
-				},
-			}}
-		}
-	}
-
-	// --- APPLY STATUS (Random) ---
-	if matches := applyRandomStatusRegex.FindStringSubmatch(text); len(matches) > 1 {
-		// "Asleep, Burned, Confused, Paralyzed, and Poisoned"
-		statusListStr := strings.ReplaceAll(matches[1], ", and ", ", ")
-		possibleStatuses := strings.Split(statusListStr, ", ")
-		return []core.Effect{{
-			Type:        core.EffectApplyStatus,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"random":            true,
-				"possible_statuses": possibleStatuses,
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (By Discarding Tools from Hand) ---
-	if matches := scalingDamageDiscardToolRegex.FindStringSubmatch(text); len(matches) > 2 {
-		maxDiscard, err1 := strconv.Atoi(matches[1])
-		damagePer, err2 := strconv.Atoi(matches[2])
-		if err1 == nil && err2 == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      damagePer,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":    "DISCARD_TOOL_FROM_HAND",
-					"max_discard": maxDiscard,
-				},
-			}}
-		}
-	}
-
-	// --- SEARCH DECK (Tool) ---
-	if searchDeckToolRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectSearchDeck,
-			Target:      core.TargetDeck,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":     "ONCE_PER_TURN",
-				"card_type":   "Pokémon Tool",
-				"random":      true,
-				"destination": "hand",
-			},
-		}}
-	}
-
-	// --- ATTACH ENERGY (End of first turn) ---
-	if matches := attachEnergyAtEndOfFirstTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Target:      core.TargetSelf,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":    "END_OF_FIRST_TURN",
-				"source":     "EnergyZone",
-				"energyType": matches[1],
-			},
-		}}
-	}
-
-	// --- EVOLVE (On Energy Attach) ---
-	if evolveOnEnergyAttachRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":  "EVOLVE",
-				"trigger": "ATTACH_ENERGY_TO_SELF",
-				"source":  "DECK",
-				"random":  true,
-			},
-		}}
-	}
-
-	// --- HEAL (Active, once per turn) ---
-	if matches := healActiveOncePerTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Target:      core.TargetSelf, // Target is Active, which is self in this context
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "ONCE_PER_TURN",
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (To any typed friendly) ---
-	if matches := attachEnergyToAnyTypedFriendlyRegex.FindStringSubmatch(text); len(matches) > 2 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":     "ONCE_PER_TURN",
-				"location":    "ACTIVE",
-				"source":      "EnergyZone",
-				"energyType":  matches[1],
-				"target_type": matches[2],
-				"target_pool": "ANY_FRIENDLY",
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Zero Retreat via other Pokémon) ---
-	if matches := passiveZeroRetreatInPlayRegex.FindStringSubmatch(text); len(matches) > 1 {
-		names := strings.Split(matches[1], " or ")
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":           "ZERO_RETREAT_COST",
+				"trigger":          "ONCE_PER_TURN",
 				"requires_in_play": names,
 			},
 		}}
 	}
-
-	// --- SCALING DAMAGE (Self Attached Energy - All Types) ---
-	if matches := scalingDamageSelfEnergyAllTypesRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "SELF_ATTACHED_ENERGY",
-				},
-			}}
-		}
+	return nil
+}
+func parseFinalConditionalDamageMultiCoinFlip(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
 	}
-
-	// --- RETURN TO HAND (On Coin Flip) ---
-	if returnToHandOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectReturnToHand,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-			},
-		}}
+	flips, err1 := strconv.Atoi(matches[1])
+	if err1 != nil {
+		return nil
 	}
-
-	// --- DISCARD BENCHED for SCALING DAMAGE ---
-	if matches := discardBenchedForScalingDamageRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDiscardBenched,
-				Target:      core.TargetBenchedFriendly, // Player chooses which/how many
-				Description: "You may discard any number of your Benched {W} Pokémon.",
-				Conditions: map[string]interface{}{
-					"target_type": matches[1],
-				},
-			}, {
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: "This attack does 40 more damage for each Benched Pokémon you discarded in this way.",
-				Conditions: map[string]interface{}{
-					"scale_by": "DISCARDED_BENCHED_COUNT",
-				},
-			}}
-		}
+	amount, err2 := strconv.Atoi(matches[2])
+	if err2 != nil {
+		return nil
 	}
-
-	// --- PASSIVE ABILITY (Global Heal Block) ---
-	if passiveGlobalHealBlockRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect": "PREVENT_HEALING",
-				"target": "GLOBAL",
-			},
-		}}
-	}
-
-	// --- DEVOLVE ---
-	if devolveOnConditionRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDevolve,
-			Target:      core.TargetOpponentActive,
-			Amount:      1, // Highest stage = 1 level
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":     "OPPONENT_IS_EVOLVED",
-				"destination": "HAND",
-			},
-		}}
-	}
-
-	// --- SHUFFLE HAND AND DRAW SCALED ---
-	if shuffleHandAndDrawScaledRegex.MatchString(text) {
-		shuffleEffect := core.Effect{
-			Type:        core.EffectShuffleFromHand,
-			Target:      core.TargetSelf, // Shuffle own hand
-			Description: "Shuffle your hand into your deck.",
-			Conditions: map[string]interface{}{
-				"destination": "DECK",
-			},
-		}
-		drawEffect := core.Effect{
-			Type:        core.EffectDraw,
-			Description: "Draw a card for each card in your opponent's hand.",
-			Conditions: map[string]interface{}{
-				"scale_by": "OPPONENT_HAND_SIZE",
-			},
-		}
-		return []core.Effect{shuffleEffect, drawEffect}
-	}
-
-	// --- DISCARD ENERGY (Both Active) ---
-	if discardEnergyBothActiveRegex.MatchString(text) {
-		discardSelf := core.Effect{
-			Type:       core.EffectDiscardEnergy,
-			Target:     core.TargetSelf,
-			Amount:     1,
-			Conditions: map[string]interface{}{"random": true},
-		}
-		discardOpponent := core.Effect{
-			Type:       core.EffectDiscardEnergy,
-			Target:     core.TargetOpponentActive,
-			Amount:     1,
-			Conditions: map[string]interface{}{"random": true},
-		}
-		return []core.Effect{discardSelf, discardOpponent}
-	}
-
-	// --- CONDITIONAL DAMAGE (Benched are damaged) ---
-	if matches := conditionalDamageBenchedDamagedRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "ANY_BENCHED_FRIENDLY_HAS_DAMAGE",
-				},
-			}}
-		}
-	}
-
-	// --- SHUFFLE FROM HAND (On Coin Flip) ---
-	if shuffleFromHandOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectShuffleFromHand,
-			Target:      core.TargetOpponentHand,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-				"reveal":       true,
-				"random":       true,
-				"destination":  "DECK",
-			},
-		}}
-	}
-
-	// --- DISCARD ENERGY (Opponent, on Coin Flip) ---
-	if discardEnergyOpponentOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetOpponentActive,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-				"random":       true,
-			},
-		}}
-	}
-
-	// --- DRAW (Until hand size matches opponent) ---
-	if drawUntilMatchHandSizeRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDraw,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"draw_until": "MATCH_OPPONENT_HAND_SIZE",
-			},
-		}}
-	}
-
-	// --- SCALING DAMAGE (Opponent Benched Count) ---
-	if matches := scalingDamageOpponentBenchedCountRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by": "OPPONENT_BENCHED_POKEMON_COUNT",
-				},
-			}}
-		}
-	}
-
-	// --- COPY ATTACK (On Coin Flip) ---
-	if copyAttackOnCoinFlipRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectCopyAttack,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-			},
-		}}
-	}
-
-	// --- SNIPE DAMAGE (Random Opponent Pokémon) ---
-	if matches := snipeRandomOpponentRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectSnipeDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"target_pool": "ANY_OPPONENT",
-					"random":      true,
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Global Damage Buff - Unown) ---
-	if matches := passiveGlobalDamageBuffUnownRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect":           "BUFF_DAMAGE_OUTPUT",
-					"target":           "ALL_FRIENDLY",
-					"amount":           amount,
-					"requires_in_play": []string{"Unown"}, // Special condition
-				},
-			}}
-		}
-	}
-
-	// --- APPLY PREVENTION (On KO) ---
-	if preventionOnKORegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility, // This is a passive trigger
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":   "APPLY_PREVENTION_ON_KO",
-				"prevent":  "ALL_DAMAGE_AND_EFFECTS",
-				"duration": "opponent_next_turn",
-			},
-		}}
-	}
-
-	// --- MOVE ENERGY (All to Benched) ---
-	if moveAllEnergyToBenchedRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectMoveEnergy,
-			Target:      core.TargetBenchedFriendly,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"amount":      "ALL",
-				"source":      "SELF",
-				"destination": "BENCHED",
-			},
-		}}
-	}
-
-	// --- APPLY RESTRICTION (Energy Attachment) ---
-	if restrictEnergyAttachmentRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction": "CANT_ATTACH_ENERGY",
-				"target":      "ACTIVE",
-				"duration":    "opponent_next_turn",
-			},
-		}}
-	}
-
-	// --- SHUFFLE FROM HAND (Simple) ---
-	if shuffleFromHandSimpleRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectShuffleFromHand,
-			Target:      core.TargetOpponentHand,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"reveal":      true,
-				"random":      true,
-				"destination": "DECK",
-			},
-		}}
-	}
-
-	// --- SWITCH SELF (Voluntary) ---
-	if voluntarySwitchRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectSwitchSelf,
-			Target:      core.TargetBenchedFriendly,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"voluntary": true,
-			},
-		}}
-	}
-
-	// --- REVEAL HAND (On Bench Play) ---
-	if revealHandOnBenchPlayRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectRevealHand,
-			Target:      core.TargetOpponentHand,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger": "ON_PLAY_TO_BENCH",
-			},
-		}}
-	}
-
-	// --- DEBUFF INCOMING DAMAGE ---
-	if matches := debuffIncomingDamageRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDebuffIncomingDamage,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"duration": "opponent_next_turn",
-				},
-			}}
-		}
-	}
-
-	// --- APPLY RESTRICTION (Can't attack on TAILS) ---
-	if restrictionOnTailsRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyRestriction,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"restriction":  "CANT_ATTACK",
-				"on_coin_flip": "TAILS",
-				"duration":     "next_turn",
-			},
-		}}
-	}
-
-	// --- CONDITIONAL DAMAGE (Opponent Name) ---
-	if matches := conditionalDamageOpponentNameRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":       "OPPONENT_IS_NAME",
-					"opponent_name": matches[1],
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (To other specific Pokémon) ---
-	if matches := attachEnergyToSpecificPokemonRegex.FindStringSubmatch(text); len(matches) > 3 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"source":       "EnergyZone",
-				"energyType":   matches[1],
-				"target_names": []string{matches[2], matches[3]},
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Retreat Cost on First Turn) ---
-	if passiveRetreatCostFirstTurnRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":   "ZERO_RETREAT_COST",
-				"duration": "FIRST_TURN",
-			},
-		}}
-	}
-
-	// --- PASSIVE ABILITY (Effect Prevention) ---
-	if passiveEffectPreventionRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect": "PREVENT_INCOMING_EFFECTS",
-			},
-		}}
-	}
-
-	// --- APPLY STATUS (Once per turn ability) ---
-	if matches := applyStatusOncePerTurnAbilityRegex.FindStringSubmatch(text); len(matches) > 1 {
-		return []core.Effect{{
-			Type:        core.EffectApplyStatus,
-			Target:      core.TargetOpponentActive,
-			Status:      core.StatusCondition(strings.ToUpper(matches[1])),
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger": "ONCE_PER_TURN",
-			},
-		}}
-	}
-
-	// --- BUFF (Stacking) ---
-	if matches := buffStackingRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectBuffNextTurn,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"attack_name": matches[1],
-					"stacking":    true,
-					"duration":    "PERSISTENT_ACTIVE",
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (If any typed energy attached) ---
-	if matches := conditionalDamageIfEnergyAttachedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":     "SELF_HAS_TYPED_ENERGY",
-					"energy_type": matches[1],
-				},
-			}}
-		}
-	}
-
-	// --- HEAL (On Energy Attach) ---
-	if matches := healOnEnergyAttachRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectHeal,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":     "ATTACH_ENERGY_TO_SELF",
-					"energy_type": matches[1],
-				},
-			}}
-		}
-	}
-
-	// --- KNOCKOUT (Attacker, on coin flip when KO'd) ---
-	if knockoutAttackerOnKORegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectPassiveAbility,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"effect":       "KO_ATTACKER_ON_KO",
-				"on_coin_flip": "HEADS",
-			},
-		}}
-	}
-
-	// --- DAMAGE (Ability, requires other Pokémon in play) ---
-	if matches := damageAbilityInPlayRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[2])
-		names := strings.Split(matches[1], " or ")
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDamage,
-				Target:      core.TargetOpponentActive,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger":          "ONCE_PER_TURN",
-					"requires_in_play": names,
-				},
-			}}
-		}
-	}
-
-	// --- CONDITIONAL DAMAGE (Multi-coin flip) ---
-	if matches := finalConditionalDamageMultiCoinFlipRegex.FindStringSubmatch(text); len(matches) > 2 {
-		flips, err1 := strconv.Atoi(matches[1])
-		amount, err2 := strconv.Atoi(matches[2])
-		if err1 == nil && err2 == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"scale_by":  "COIN_FLIP_HEADS",
-					"num_flips": flips,
-				},
-			}}
-		}
-	}
-
-	// --- PASSIVE ABILITY (Simple Damage Reduction) ---
-	if matches := finalPassiveDamageReductionRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectPassiveAbility,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"effect": "REDUCE_INCOMING_DAMAGE",
-					"amount": amount,
-				},
-			}}
-		}
-	}
-
-	// --- DISCARD ENERGY (Opponent, simple) ---
-	if finalDiscardEnergyOpponentSimpleRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectDiscardEnergy,
-			Target:      core.TargetOpponentActive,
-			Amount:      1,
-			Description: text,
-			Conditions:  map[string]interface{}{"random": true},
-		}}
-	}
-
-	// --- CONDITIONAL DAMAGE (Flip until tails) ---
-	if matches := finalConditionalDamageUntilTailsRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions:  map[string]interface{}{"scale_by": "COIN_FLIP_HEADS_UNTIL_TAILS"},
-			}}
-		}
-	}
-
-	// --- SCALING DAMAGE (Opponent Energy, Base Damage) ---
-	if matches := finalScalingDamageOpponentEnergyBaseRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectScalingDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"is_base_damage": true,
-					"scale_by":       "OPPONENT_ATTACHED_ENERGY",
-				},
-			}}
-		}
-	}
-
-	// --- ATTACH ENERGY (To Active Typed Pokémon) ---
-	if matches := finalAttachEnergyToActiveTypedRegex.FindStringSubmatch(text); len(matches) > 2 {
-		return []core.Effect{{
-			Type:        core.EffectAttachEnergy,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":         "ONCE_PER_TURN",
-				"source":          "EnergyZone",
-				"energyType":      matches[1],
-				"target_location": "ACTIVE",
-				"target_type":     matches[2],
-			},
-		}}
-	}
-
-	// --- CONDITIONAL DAMAGE (Opponent is EX) ---
-	if matches := finalConditionalDamageOpponentIsEXRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectConditionalDamage,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"trigger": "OPPONENT_IS_EX",
-				},
-			}}
-		}
-	}
-
-	// --- DISCARD ENERGY (Self, on tails) ---
-	if matches := finalDiscardSelfEnergyOnTailsRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectDiscardEnergy,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"on_coin_flip": "TAILS",
-					"random":       true,
-				},
-			}}
-		}
-	}
-
-	// --- REDUCE INCOMING DAMAGE (Next Turn) ---
-	if matches := finalReduceDamageNextTurnRegex.FindStringSubmatch(text); len(matches) > 1 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectReduceIncomingDamage,
-				Target:      core.TargetSelf,
-				Amount:      amount,
-				Description: text,
-				Conditions:  map[string]interface{}{"duration": "opponent_next_turn"},
-			}}
-		}
-	}
-
-	// --- FORCE SWITCH (On Heads) ---
-	if finalForceSwitchOnHeadsRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectForceSwitch,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-			Conditions:  map[string]interface{}{"on_coin_flip": "HEADS"},
-		}}
-	}
-
-	// --- INCREASE OPPONENT COST (Next Turn) ---
-	if matches := finalIncreaseOpponentCostNextTurnRegex.FindStringSubmatch(text); len(matches) > 2 {
-		amount, err := strconv.Atoi(matches[1])
-		if err == nil {
-			return []core.Effect{{
-				Type:        core.EffectApplyRestriction,
-				Target:      core.TargetOpponentActive,
-				Description: text,
-				Conditions: map[string]interface{}{
-					"restriction": "INCREASE_ATTACK_COST",
-					"amount":      amount,
-					"energyType":  matches[2],
-					"duration":    "opponent_next_turn",
-				},
-			}}
-		}
-	}
-
-	// --- PREVENTION (On Heads) ---
-	if finalPreventionOnHeadsRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectApplyPrevention,
-			Target:      core.TargetSelf,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"on_coin_flip": "HEADS",
-				"duration":     "opponent_next_turn",
-				"prevent":      "ALL_DAMAGE_AND_EFFECTS",
-			},
-		}}
-	}
-
-	// --- SEARCH DECK (Generic Pokémon) ---
-	if finalSearchDeckGenericPokemonRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectSearchDeck,
-			Target:      core.TargetDeck,
-			Amount:      1,
-			Description: text,
-			Conditions: map[string]interface{}{
-				"trigger":     "ONCE_PER_TURN",
-				"pokemonType": "ANY",
-				"random":      true,
-				"destination": "hand",
-			},
-		}}
-	}
-
-	// --- FORCE SWITCH (Simple) ---
-	if finalForceSwitchSimpleRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectForceSwitch,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-		}}
-	}
-
-	// --- FINAL HARIYAMA FIX ---
-	if hariyamaPushOutRegex.MatchString(text) {
-		return []core.Effect{{
-			Type:        core.EffectForceSwitch,
-			Target:      core.TargetOpponentActive,
-			Description: text,
-		}}
-	}
-
-	// --- Fallback for unknown effects ---
-	// If no other rule matches, we return an UNKNOWN effect type. This allows us
-	// to see which effects we still need to implement parsing for.
 	return []core.Effect{{
-		Type:        core.EffectUnknown,
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"scale_by":  "COIN_FLIP_HEADS",
+			"num_flips": flips,
+		}},
+	}
+}
+func parseFinalPassiveDamageReduction(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectPassiveAbility,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"effect": "REDUCE_INCOMING_DAMAGE",
+			"amount": amount,
+		}},
+	}
+}
+func parseFinalDiscardEnergyOpponentSimple(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetOpponentActive,
+		Amount:      1,
+		Description: text,
+		Conditions:  map[string]interface{}{"random": true},
+	}}
+}
+func parseFinalConditionalDamageUntilTails(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions:  map[string]interface{}{"scale_by": "COIN_FLIP_HEADS_UNTIL_TAILS"}},
+	}
+}
+func parseFinalScalingDamageOpponentEnergyBase(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectScalingDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"is_base_damage": true,
+			"scale_by":       "OPPONENT_ATTACHED_ENERGY",
+		}},
+	}
+}
+func parseFinalAttachEnergyToActiveTyped(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectAttachEnergy,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":         "ONCE_PER_TURN",
+			"source":          "EnergyZone",
+			"energyType":      matches[1],
+			"target_location": "ACTIVE",
+			"target_type":     matches[2],
+		},
+	}}
+}
+func parseFinalConditionalDamageOpponentIsEX(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectConditionalDamage,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger": "OPPONENT_IS_EX",
+		}},
+	}
+}
+func parseFinalDiscardSelfEnergyOnTails(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectDiscardEnergy,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "TAILS",
+			"random":       true,
+		}},
+	}
+}
+func parseFinalReduceDamageNextTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 2 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectReduceIncomingDamage,
+		Target:      core.TargetSelf,
+		Amount:      amount,
+		Description: text,
+		Conditions:  map[string]interface{}{"duration": "opponent_next_turn"}},
+	}
+}
+func parseFinalForceSwitchOnHeads(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectForceSwitch,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions:  map[string]interface{}{"on_coin_flip": "HEADS"},
+	}}
+}
+func parseFinalIncreaseOpponentCostNextTurn(matches []string, text string) []core.Effect {
+	if len(matches) < 3 {
+		return nil
+	}
+	amount, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil
+	}
+	return []core.Effect{{
+		Type:        core.EffectApplyRestriction,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"restriction": "INCREASE_ATTACK_COST",
+			"amount":      amount,
+			"energyType":  matches[2],
+			"duration":    "opponent_next_turn",
+		}},
+	}
+}
+func parseFinalPreventionOnHeads(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectApplyPrevention,
+		Target:      core.TargetSelf,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"on_coin_flip": "HEADS",
+			"duration":     "opponent_next_turn",
+			"prevent":      "ALL_DAMAGE_AND_EFFECTS",
+		},
+	}}
+}
+func parseFinalSearchDeckGenericPokemon(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectSearchDeck,
+		Target:      core.TargetDeck,
+		Amount:      1,
+		Description: text,
+		Conditions: map[string]interface{}{
+			"trigger":     "ONCE_PER_TURN",
+			"pokemonType": "ANY",
+			"random":      true,
+			"destination": "hand",
+		},
+	}}
+}
+func parseFinalForceSwitchSimple(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectForceSwitch,
+		Target:      core.TargetOpponentActive,
+		Description: text,
+	}}
+}
+func parseHariyamaPushOut(matches []string, text string) []core.Effect {
+	return []core.Effect{{
+		Type:        core.EffectForceSwitch,
+		Target:      core.TargetOpponentActive,
 		Description: text,
 	}}
 }
