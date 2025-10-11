@@ -41,18 +41,32 @@ type SearchCondition struct {
 
 func (c SearchCondition) isCondition() {}
 
-type EnergyCondition struct {
+type ExtraEnergyCondition struct {
 	RequiredExtraEnergyCount int    `json:"requiredExtraEnergyCount"`
 	RequiredEnergyType       string `json:"requiredEnergyType"`
 }
 
-func (c EnergyCondition) isCondition() {}
+func (c ExtraEnergyCondition) isCondition() {}
 
-type EnergyAttachCondition struct {
+type EnergyCondition struct {
 	RequiredEnergyType string `json:"requiredEnergyType"`
 }
 
-func (c EnergyAttachCondition) isCondition() {}
+func (c EnergyCondition) isCondition() {}
+
+type AttachEnergyCondition struct {
+	RequiredEnergyType string     `json:"requiredEnergyType"`
+	Source             TargetType `json:"source"`
+}
+
+func (c AttachEnergyCondition) isCondition() {}
+
+type PokemonInPlayCondition struct {
+	Target  TargetType `json:"target"`
+	Pokemon string     `json:"pokemon"`
+}
+
+func (c PokemonInPlayCondition) isCondition() {}
 
 // --- ENUMS for True Type Safety ---
 
@@ -64,6 +78,7 @@ const (
 	TriggerOpponentHasStatus TriggerType = "OPPONENT_HAS_STATUS"
 	TriggerAttachEnergySelf  TriggerType = "ATTACH_ENERGY_SELF"
 	TriggerOponentHpGreater  TriggerType = "OPPONENT_HP_GREATER"
+	TriggerCheckupActive     TriggerType = "POKEMON_CHECKUP_ACTIVE"
 )
 
 type ScaleByType string

@@ -4,6 +4,7 @@ package core
 type Effect struct {
 	Name        string          `json:"name"`
 	Type        EffectType      `json:"type"`
+	Passive     bool            `json:"passive,omitempty"`
 	Target      TargetType      `json:"target,omitempty"`
 	Status      StatusCondition `json:"status,omitempty"`
 	Amount      int             `json:"amount,omitempty"`
@@ -33,8 +34,6 @@ const (
 	EffectMoveEnergy               EffectType = "MOVE_ENERGY"
 	EffectReduceIncomingDamage     EffectType = "REDUCE_INCOMING_DAMAGE"
 	EffectDiscardFromHand          EffectType = "DISCARD_FROM_HAND"
-	EffectPassiveAbility           EffectType = "PASSIVE_ABILITY"
-	EffectPassiveDamage            EffectType = "PASSIVE_DAMAGE"
 	EffectApplyRestriction         EffectType = "APPLY_RESTRICTION"
 	EffectMultiHitRandomDamage     EffectType = "MULTI_HIT_RANDOM_DAMAGE"
 	EffectDamageBenchedFriendly    EffectType = "DAMAGE_BENCHED_FRIENDLY"
@@ -64,6 +63,7 @@ const (
 	EffectDiscardBenched           EffectType = "DISCARD_BENCHED"
 	EffectDevolve                  EffectType = "DEVOLVE"
 	EffectDebuffIncomingDamage     EffectType = "DEBUFF_INCOMING_DAMAGE"
+	EffectRemoveRetreatCost        EffectType = "REMOVE_RETREAT_COST"
 )
 
 // TargetType defines who the effect applies to.
@@ -74,6 +74,7 @@ const (
 	TargetOpponentActive     TargetType = "OPPONENT_ACTIVE"
 	TargetOpponentHand       TargetType = "OPPONENT_HAND"
 	TargetAllFriendly        TargetType = "ALL_FRIENDLY"
+	TargetAllOpponent        TargetType = "ALL_OPPONENT"
 	TargetAllPokemonInPlay   TargetType = "ALL_POKEMON_IN_PLAY"
 	TargetBenchedFriendly    TargetType = "BENCHED_FRIENDLY"
 	TargetBenchedOpponent    TargetType = "BENCHED_OPPONENT"
@@ -81,6 +82,7 @@ const (
 	TargetDeck               TargetType = "DECK"
 	TargetHand               TargetType = "HAND"
 	TargetEnergyZone         TargetType = "ENERGY_ZONE"
+	TargetEnemyEnergyZone    TargetType = "ENEMY_ENERGY_ZONE"
 )
 
 // StatusCondition represents the special conditions in the game.

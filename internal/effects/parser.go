@@ -638,7 +638,7 @@ func parseConditionalDamage(matches []string, text string) []core.Effect {
 		Amount:      damageBonus,
 		Description: text,
 		Conditions: []core.Condition{
-			core.EnergyCondition{
+			core.ExtraEnergyCondition{
 				RequiredExtraEnergyCount: requiredEnergyCount,
 				RequiredEnergyType:       energyType,
 			},
@@ -683,7 +683,7 @@ func parseAttachEnergy(matches []string, text string) []core.Effect {
 		Target:      core.TargetSelf,
 		Description: text,
 		Conditions: []core.Condition{
-			core.EnergyAttachCondition{
+			core.EnergyCondition{
 				RequiredEnergyType: matches[1],
 			},
 		},
@@ -751,8 +751,10 @@ func parseConditionalDamageEvolvedTurn(matches []string, text string) []core.Eff
 		Type:        core.EffectConditionalDamage,
 		Amount:      amount,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"trigger": "EVOLVED_THIS_TURN",
+		Conditions: []core.Condition{
+			core.TriggerCondition{
+				Trigger: core.TriggerEvolvedThisTurn,
+			},
 		}},
 	}
 }
@@ -765,13 +767,15 @@ func parsePassiveDamageCheckup(matches []string, text string) []core.Effect {
 		return nil
 	}
 	return []core.Effect{{
-		Type:        core.EffectPassiveDamage,
+		Type:        core.EffectDamage,
 		Target:      core.TargetOpponentActive,
+		Passive:     true,
 		Amount:      amount,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"phase":    "CHECKUP",
-			"location": "ACTIVE",
+		Conditions: []core.Condition{
+			core.TriggerCondition{
+				Trigger: core.TriggerCheckupActive,
+			},
 		}},
 	}
 }
@@ -787,8 +791,10 @@ func parseScalingDamageRetreatCost(matches []string, text string) []core.Effect 
 		Type:        core.EffectScalingDamage,
 		Amount:      amount,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"scale_by": "OPPONENT_RETREAT_COST",
+		Conditions: []core.Condition{
+			core.ScalingCondition{
+				ScaleBy: core.ScaleByOpponentRetreatCost,
+			},
 		}},
 	}
 }
@@ -796,20 +802,24 @@ func parseCoinFlipTailsFails(matches []string, text string) []core.Effect {
 	return []core.Effect{{
 		Type:        core.EffectAttackMayFail,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"chance": 0.5,
-			"on":     "TAILS",
+		Conditions: []core.Condition{
+			core.CoinFlipCondition{
+				Result: core.CoinFlipTails,
+			},
 		},
 	}}
 }
 func parsePassiveRetreatCostLatias(matches []string, text string) []core.Effect {
 	return []core.Effect{{
-		Type:        core.EffectPassiveAbility,
+		Type:        core.EffectRemoveRetreatCost,
+		Passive:     true,
 		Target:      core.TargetSelf,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"effect":           "ZERO_RETREAT_COST",
-			"requires_in_play": "Latias",
+		Conditions: []core.Condition{
+			core.PokemonInPlayCondition{
+				Target:  core.TargetAllFriendly,
+				Pokemon: "Latias",
+			},
 		},
 	}}
 }
@@ -817,10 +827,8 @@ func parseDiscardAllEnergy(matches []string, text string) []core.Effect {
 	return []core.Effect{{
 		Type:        core.EffectDiscardEnergy,
 		Target:      core.TargetSelf,
+		Amount:      100000,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"amount": "ALL",
-		},
 	}}
 }
 func parseDiscardTypedEnergy(matches []string, text string) []core.Effect {
@@ -836,8 +844,10 @@ func parseDiscardTypedEnergy(matches []string, text string) []core.Effect {
 		Target:      core.TargetSelf,
 		Amount:      amount,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"energyType": matches[2],
+		Conditions: []core.Condition{
+			core.EnergyCondition{
+				RequiredEnergyType: matches[2],
+			},
 		}},
 	}
 }
@@ -849,9 +859,11 @@ func parseMoveAllTypedEnergy(matches []string, text string) []core.Effect {
 		Type:        core.EffectMoveEnergy,
 		Target:      core.TargetSelf,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"source":     "ALL_FRIENDLY",
-			"energyType": matches[1],
+		Conditions: []core.Condition{
+			core.AttachEnergyCondition{
+				RequiredEnergyType: matches[1],
+				Source:             core.TargetBenchedFriendly,
+			},
 		},
 	}}
 }
