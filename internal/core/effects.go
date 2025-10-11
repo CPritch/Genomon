@@ -1,5 +1,10 @@
 package core
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Effect is our internal structured representation of an attack or ability's effect.
 type Effect struct {
 	Name        string          `json:"name"`
@@ -8,6 +13,7 @@ type Effect struct {
 	Target      TargetType      `json:"target,omitempty"`
 	Status      StatusCondition `json:"status,omitempty"`
 	Amount      int             `json:"amount,omitempty"`
+	Times       int             `json:"times,omitempty"`
 	Conditions  []Condition     `json:"conditions,omitempty"`
 	Description string          `json:"description"`
 }
@@ -33,7 +39,7 @@ const (
 	EffectDiscardEnergy            EffectType = "DISCARD_ENERGY"
 	EffectMoveEnergy               EffectType = "MOVE_ENERGY"
 	EffectReduceIncomingDamage     EffectType = "REDUCE_INCOMING_DAMAGE"
-	EffectDiscardFromHand          EffectType = "DISCARD_FROM_HAND"
+	EffectDiscardCard              EffectType = "DISCARD_CARD"
 	EffectApplyRestriction         EffectType = "APPLY_RESTRICTION"
 	EffectMultiHitRandomDamage     EffectType = "MULTI_HIT_RANDOM_DAMAGE"
 	EffectDamageBenchedFriendly    EffectType = "DAMAGE_BENCHED_FRIENDLY"
@@ -48,7 +54,6 @@ const (
 	EffectBuffNextTurn             EffectType = "BUFF_NEXT_TURN"
 	EffectModifyEnergy             EffectType = "MODIFY_ENERGY"
 	EffectDamageAllOpponent        EffectType = "DAMAGE_ALL_OPPONENT"
-	EffectDiscardDeck              EffectType = "DISCARD_DECK"
 	EffectUnknown                  EffectType = "UNKNOWN"
 	EffectSetHP                    EffectType = "SET_HP"
 	EffectShuffleFromHand          EffectType = "SHUFFLE_FROM_HAND"
@@ -56,11 +61,9 @@ const (
 	EffectDelayedDamage            EffectType = "DELAYED_DAMAGE"
 	EffectKnockout                 EffectType = "KNOCKOUT"
 	EffectMoveDamage               EffectType = "MOVE_DAMAGE"
-	EffectDiscardTool              EffectType = "DISCARD_TOOL"
 	EffectRevealHand               EffectType = "REVEAL_HAND"
 	EffectDamageHalveHP            EffectType = "DAMAGE_HALVE_HP"
 	EffectReturnToHand             EffectType = "RETURN_TO_HAND"
-	EffectDiscardBenched           EffectType = "DISCARD_BENCHED"
 	EffectDevolve                  EffectType = "DEVOLVE"
 	EffectDebuffIncomingDamage     EffectType = "DEBUFF_INCOMING_DAMAGE"
 	EffectRemoveRetreatCost        EffectType = "REMOVE_RETREAT_COST"
@@ -83,6 +86,8 @@ const (
 	TargetHand               TargetType = "HAND"
 	TargetEnergyZone         TargetType = "ENERGY_ZONE"
 	TargetEnemyEnergyZone    TargetType = "ENEMY_ENERGY_ZONE"
+	TargetGraveyard          TargetType = "GRAVEYARD"
+	TargetOpponentGraveyard  TargetType = "OPPONENT_GRAVEYARD"
 )
 
 // StatusCondition represents the special conditions in the game.
@@ -95,3 +100,25 @@ const (
 	StatusBurned    StatusCondition = "BURNED"
 	StatusParalyzed StatusCondition = "PARALYZED"
 )
+
+func ParseStatusCondition(s string) (StatusCondition, error) {
+	// Normalize the input string by trimming whitespace and converting to lowercase
+	// for case-insensitive comparison.
+	normalizedInput := strings.ToLower(strings.TrimSpace(s))
+
+	switch normalizedInput {
+	case "poisoned":
+		return StatusPoisoned, nil
+	case "confused":
+		return StatusConfused, nil
+	case "asleep":
+		return StatusAsleep, nil
+	case "burned":
+		return StatusBurned, nil
+	case "paralyzed":
+		return StatusParalyzed, nil
+	default:
+		// If no case matches, return an empty StatusCondition and an error.
+		return "", fmt.Errorf("invalid status condition: %q", s)
+	}
+}

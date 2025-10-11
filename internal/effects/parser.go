@@ -880,8 +880,10 @@ func parseReduceIncomingDamage(matches []string, text string) []core.Effect {
 		Target:      core.TargetOpponentActive,
 		Amount:      amount,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"duration": "next_turn",
+		Conditions: []core.Condition{
+			core.TriggerCondition{
+				Trigger: core.TriggerAttackedNextTurn,
+			},
 		}},
 	}
 }
@@ -890,26 +892,31 @@ func parseDiscardFromHand(matches []string, text string) []core.Effect {
 		return nil
 	}
 	return []core.Effect{{
-		Type:        core.EffectDiscardFromHand,
-		Target:      core.TargetOpponentHand,
-		Amount:      1, // "a random" implies 1
+		Type:        core.EffectDiscardCard,
+		Target:      core.TargetOpponentGraveyard,
+		Amount:      1,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"card_type": matches[1],
-			"random":    true,
-		},
-	}}
+		Conditions: []core.Condition{
+			core.SearchCondition{
+				Target:      core.TargetOpponentHand,
+				Random:      true,
+				PokemonType: core.PokemonType(matches[1]),
+			},
+		}},
+	}
 }
 func parseCantRetreat(matches []string, text string) []core.Effect {
 	return []core.Effect{{
 		Type:        core.EffectApplyRestriction,
 		Target:      core.TargetOpponentActive,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"restriction": "CANT_RETREAT",
-			"duration":    "next_turn",
-		},
-	}}
+		Conditions: []core.Condition{
+			core.RestrictionCondition{
+				Restriction: core.RestrictionRetreat,
+				Duration:    core.DurationNextTurn,
+			},
+		}},
+	}
 }
 func parseMultiHitRandom(matches []string, text string) []core.Effect {
 	if len(matches) < 3 {
@@ -925,11 +932,15 @@ func parseMultiHitRandom(matches []string, text string) []core.Effect {
 	}
 	return []core.Effect{{
 		Type:        core.EffectMultiHitRandomDamage,
-		Target:      core.TargetOpponentActive, // Target pool is opponent's field
+		Target:      core.TargetAllOpponent, // Target pool is opponent's field
 		Amount:      damage,
+		Times:       hits,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"hits": hits,
+		Conditions: []core.Condition{
+			core.SearchCondition{
+				Target: core.TargetAllOpponent,
+				Random: true,
+			},
 		}},
 	}
 }
@@ -939,13 +950,25 @@ func parseStatusOnCoinFlip(matches []string, text string) []core.Effect {
 	}
 	// Handles "Poisoned and Paralyzed"
 	statuses := strings.Split(matches[1], " and ")
+	var parsedStatuses []core.StatusCondition
+
+	for _, tc := range statuses {
+		status, err := core.ParseStatusCondition(tc)
+		if err != nil {
+			parsedStatuses = append(parsedStatuses, status)
+		}
+	}
 	return []core.Effect{{
 		Type:        core.EffectApplyStatus,
 		Target:      core.TargetOpponentActive,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"on_coin_flip": "HEADS",
-			"statuses":     statuses,
+		Conditions: []core.Condition{
+			core.CoinFlipCondition{
+				Result: core.CoinFlipHeads,
+			},
+			core.ApplyStausCondition{
+				Statuses: parsedStatuses,
+			},
 		},
 	}}
 }
@@ -953,8 +976,10 @@ func parseScalingDamageSelfDamage(matches []string, text string) []core.Effect {
 	return []core.Effect{{
 		Type:        core.EffectScalingDamage,
 		Description: text,
-		Conditions: map[string]interface{}{
-			"scale_by": "SELF_DAMAGE_COUNTERS",
+		Conditions: []core.Condition{
+			core.ScalingCondition{
+				ScaleBy: core.ScaleBySelfDamage,
+			},
 		},
 	}}
 }

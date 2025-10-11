@@ -68,7 +68,24 @@ type PokemonInPlayCondition struct {
 
 func (c PokemonInPlayCondition) isCondition() {}
 
-// --- ENUMS for True Type Safety ---
+type RestrictionCondition struct {
+	Restriction RestrictionType
+	Duration    DurationType
+}
+
+func (c RestrictionCondition) isCondition() {}
+
+type ApplyStausCondition struct {
+	Statuses []StatusCondition
+}
+
+func (c ApplyStausCondition) isCondition() {}
+
+type RestrictionType string
+
+const (
+	RestrictionRetreat RestrictionType = "CANT_RETREAT"
+)
 
 type TriggerType string
 
@@ -79,6 +96,7 @@ const (
 	TriggerAttachEnergySelf  TriggerType = "ATTACH_ENERGY_SELF"
 	TriggerOponentHpGreater  TriggerType = "OPPONENT_HP_GREATER"
 	TriggerCheckupActive     TriggerType = "POKEMON_CHECKUP_ACTIVE"
+	TriggerAttackedNextTurn  TriggerType = "ATTACKED_NEXT_TURN"
 )
 
 type ScaleByType string
@@ -86,6 +104,7 @@ type ScaleByType string
 const (
 	ScaleByOpponentRetreatCost ScaleByType = "OPPONENT_RETREAT_COST"
 	ScaleByFriendlyBenched     ScaleByType = "FRIENDLY_BENCHED_COUNT"
+	ScaleBySelfDamage          ScaleByType = "SELF_DAMAGE_COUNTERS"
 )
 
 type CoinFlipResult string
